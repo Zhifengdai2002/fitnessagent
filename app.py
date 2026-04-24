@@ -1,0 +1,1264 @@
+from __future__ import annotations
+
+import json
+from datetime import date, datetime, timedelta
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
+
+import streamlit as st
+
+from agent.config import load_settings
+from agent.graph import run_agent
+from agent.llm import call_model_json, load_prompt
+from agent.state import FitnessAgentState
+
+WEEKDAY_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+WEEKDAY_INDEX = {day: index for index, day in enumerate(WEEKDAY_ORDER)}
+ALLOWED_CHANGE_REQUEST_TYPES = {"workout_change", "nutrition_change", "mixed_change", "recovery_change", "none", "unclear"}
+ALLOWED_CHANGE_REQUEST_SCOPES = {"today_only", "current_cycle", "future_default", "permanent", "unclear"}
+ALLOWED_FOCUS_CATEGORIES = {
+    "",
+    "upper_chest_arms",
+    "upper_shoulders",
+    "back_training",
+    "lower_legs_glutes",
+    "functional_core",
+    "functional_power",
+    "functional_conditioning",
+}
+
+
+def main() -> None:
+    settings = load_settings()
+    _initialize_session_state()
+
+    st.set_page_config(page_title="FitnessAgent", layout="wide")
+    _apply_light_theme()
+    st.title("FitnessAgent")
+    st.caption("Closed-loop fitness coaching demo powered by LangGraph")
+
+    agent_output_container = st.container()
+    feedback_container = st.container()
+
+    _render_sidebar(settings)
+
+    with feedback_container:
+        _render_daily_feedback_section()
+
+    result = st.session_state.get("agent_result")
+    with agent_output_container:
+        if result:
+            st.header("Agent Output")
+            _render_agent_output(result)
+        else:
+            st.info("Fill in the User Profile in the sidebar and click `Run FitnessAgent` to create your first plan.")
+
+
+def _initialize_session_state() -> None:
+    defaults = {
+        "thread_id": f"streamlit-{uuid4()}",
+        "profile_inputs": None,
+        "agent_result": None,
+        "last_feedback_summary": "",
+        "active_date": date.today().isoformat(),
+        "homepage_date_picker": date.today(),
+        "completed_training_days": [],
+        "week_history": [],
+        "last_action_message": "",
+    }
+    for key, value in defaults.items():
+        st.session_state.setdefault(key, value)
+
+
+def _apply_light_theme() -> None:
+    st.markdown(
+        """
+        <style>
+        :root {
+            --fa-bg: #f8f5ef;
+            --fa-sidebar: #f2ece2;
+            --fa-border: #ded5c7;
+            --fa-text: #1f2937;
+            --fa-muted: #5b6472;
+            --fa-accent: #0f766e;
+        }
+        .stApp, [data-testid="stAppViewContainer"] {
+            background: linear-gradient(180deg, #fbf8f2 0%, #f5f1e8 100%);
+            color: var(--fa-text);
+        }
+        [data-testid="stHeader"] {
+            background: rgba(248, 245, 239, 0.9);
+        }
+        [data-testid="stSidebar"] {
+            background: var(--fa-sidebar);
+            border-right: 1px solid var(--fa-border);
+        }
+        h1, h2, h3, h4, h5, h6, p, label, li {
+            color: var(--fa-text);
+        }
+        [data-testid="stMarkdownContainer"] p {
+            color: var(--fa-text);
+        }
+        [data-testid="stCaptionContainer"] {
+            color: var(--fa-muted);
+        }
+        a {
+            color: var(--fa-accent) !important;
+        }
+        div.stButton > button,
+        div[data-testid="stFormSubmitButton"] > button {
+            border-radius: 12px;
+        }
+        [data-baseweb="input"],
+        [data-baseweb="base-input"],
+        [data-baseweb="select"] > div,
+        [data-baseweb="textarea"] > div,
+        textarea,
+        input {
+            color: var(--fa-text) !important;
+            caret-color: var(--fa-text) !important;
+        }
+        input::placeholder,
+        textarea::placeholder {
+            color: #7b8794 !important;
+        }
+        [data-testid="stInfo"] {
+            background: #f0f9f8;
+            border: 1px solid #b7dfdb;
+        }
+        [data-testid="stSuccess"] {
+            background: #edfdf5;
+            border: 1px solid #bde8d0;
+        }
+        [data-testid="stWarning"] {
+            background: #fffbeb;
+            border: 1px solid #f4df9b;
+        }
+        [data-testid="stAlert"] {
+            border-radius: 14px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_sidebar(settings) -> None:
+    with st.sidebar:
+        st.header("User Profile")
+        with st.form("profile_form", clear_on_submit=False):
+            age = st.number_input("Age", min_value=16, max_value=90, value=26)
+            sex = st.selectbox("Sex", ["male", "female", "other", "prefer_not_to_say"], index=0)
+            height_cm = st.number_input("Height (cm)", min_value=130.0, max_value=230.0, value=175.0)
+            weight_kg = st.number_input("Weight (kg)", min_value=35.0, max_value=250.0, value=78.0)
+            body_fat_pct = st.number_input("Body Fat (%)", min_value=3.0, max_value=60.0, value=24.0, step=0.1)
+            fitness_level = st.selectbox("Fitness Level", ["beginner", "intermediate", "advanced"], index=0)
+            start_date = st.date_input(
+                "Start Date",
+                value=_iso_to_date(st.session_state.get("active_date", date.today().isoformat())),
+            )
+
+            st.subheader("Goals")
+            primary_goal = st.selectbox(
+                "Primary Goal",
+                ["weight_loss", "strength", "sculpting"],
+                format_func=lambda value: {
+                    "weight_loss": "Weight Loss",
+                    "strength": "Strength",
+                    "sculpting": "Sculpting",
+                }[value],
+                index=0,
+            )
+            timeline_weeks = st.slider("Timeline (weeks)", min_value=4, max_value=24, value=12)
+            target_weight_kg = st.number_input("Target Weight (kg)", min_value=35.0, max_value=250.0, value=72.0)
+            target_body_fat_pct = st.number_input("Target Body Fat (%)", min_value=3.0, max_value=60.0, value=18.0, step=0.1)
+
+            st.subheader("Constraints")
+            sessions_per_week = st.slider("Sessions per Cycle", min_value=3, max_value=5, value=4)
+            available_days = st.multiselect(
+                "Available Days",
+                ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+                default=["Monday", "Wednesday", "Saturday"],
+            )
+            injuries_text = st.text_input("Injuries or Pain-Sensitive Areas", value="")
+            allergies_text = st.text_input("Food Allergies", value="")
+            dietary_preferences = st.multiselect(
+                "Diet Preferences",
+                ["vegetarian", "vegan", "gluten_free", "high_protein"],
+                default=[],
+            )
+            profile_notes = st.text_area(
+                "Notes",
+                placeholder="Anything else I should know? Example: I prefer short morning workouts, I get bored easily, my left knee is sensitive, I want home-based training.",
+            )
+
+            submitted = st.form_submit_button("Run FitnessAgent", type="primary")
+
+        with st.expander("System", expanded=False):
+            st.write("Project root:", Path(__file__).resolve().parent)
+            st.write("Model:", settings.model_name)
+            st.write("Model base URL:", settings.model_base_url)
+            st.write("Model API key loaded:", settings.has_model_api_key)
+            st.write("YouTube key loaded:", settings.has_youtube_key)
+
+    if submitted:
+        sorted_available_days = _sort_days(available_days)
+        start_date_iso = start_date.isoformat()
+        st.session_state["active_date"] = start_date_iso
+        st.session_state["homepage_date_picker"] = start_date
+        st.session_state["completed_training_days"] = []
+        st.session_state["week_history"] = []
+        st.session_state["last_feedback_summary"] = ""
+        st.session_state["last_action_message"] = ""
+
+        profile_inputs = {
+            "age": age,
+            "sex": sex,
+            "height_cm": float(height_cm),
+            "weight_kg": float(weight_kg),
+            "body_fat_pct": float(body_fat_pct),
+            "fitness_level": fitness_level,
+            "activity_level": "lightly_active",
+            "start_date": start_date_iso,
+            "primary_goal": primary_goal,
+            "timeline_weeks": timeline_weeks,
+            "target_weight_kg": float(target_weight_kg),
+            "target_body_fat_pct": float(target_body_fat_pct),
+            "sessions_per_week": sessions_per_week,
+            "minutes_per_session": 60,
+            "available_days": sorted_available_days,
+            "equipment_access": _default_equipment_access(),
+            "injuries_text": injuries_text,
+            "allergies_text": allergies_text,
+            "dietary_preferences": dietary_preferences,
+            "profile_notes": profile_notes,
+        }
+        st.session_state["profile_inputs"] = profile_inputs
+        _execute_agent(_build_initial_state(profile_inputs))
+
+
+def _render_agent_output(result: FitnessAgentState) -> None:
+    current_plan = result.get("current_plan", {})
+    evaluation_result = result.get("evaluation_result", {})
+    current_reference_date = _display_reference_date(
+        st.session_state.get("active_date", result.get("current_date", date.today().isoformat()))
+    )
+
+    selected_date = st.date_input("Plan Date", key="homepage_date_picker")
+    if selected_date.isoformat() != current_reference_date:
+        current_reference_date = selected_date.isoformat()
+        st.session_state["active_date"] = current_reference_date
+    st.caption(f"Viewing plan for {selected_date.isoformat()} ({selected_date.strftime('%A')})")
+
+    today_container = st.container()
+    change_request_container = st.container()
+    weekly_container = st.container()
+    notes_container = st.container()
+    history_container = st.container()
+
+    with change_request_container:
+        with st.form("change_request_form", clear_on_submit=True):
+            change_request = st.text_area(
+                "Want to make some changes?",
+                placeholder="Example: I slept badly, can we make today's workout shorter? Or: I want more lower-body work today.",
+                key="change_request_text",
+            )
+            update_today = st.form_submit_button("Update Today's Plan")
+
+    if update_today and change_request.strip():
+        profile_inputs = st.session_state.get("profile_inputs")
+        if not profile_inputs:
+            st.error("Please create an initial plan from the User Profile first.")
+        else:
+            updated_state = _build_change_request_state(
+                profile_inputs=profile_inputs,
+                previous_result=result,
+                change_request=change_request,
+            )
+            _execute_agent(updated_state)
+            result = st.session_state.get("agent_result", result)
+            current_plan = result.get("current_plan", current_plan)
+            evaluation_result = result.get("evaluation_result", evaluation_result)
+            current_reference_date = _display_reference_date(st.session_state.get("active_date", current_reference_date))
+            st.session_state["last_action_message"] = "Today's plan was updated. Other cycle sessions were kept unchanged."
+
+    with today_container:
+        st.caption(result.get("coaching_message", ""))
+        if result.get("needs_revision"):
+            st.warning("The agent thinks this plan still needs some adjustment based on the latest context.")
+        action_message = st.session_state.get("last_action_message", "")
+        if action_message:
+            st.success(action_message)
+
+        st.subheader("Today's Plan")
+        today_session = _select_today_session(
+            _sort_workout_sessions(current_plan.get("workout_sessions", [])),
+            current_reference_date,
+        )
+        session_videos = _videos_for_session(today_session, result.get("youtube_resources", []))
+
+        plan_col, support_col = st.columns([1.25, 1])
+        with plan_col:
+            if today_session:
+                if today_session.get("is_cancelled"):
+                    st.markdown(f"**{_session_display_label(today_session)}**")
+                    st.warning("Today's workout is cancelled by a hard safety rule.")
+                    if today_session.get("safety_notes"):
+                        st.write("Safety Notes:", " ".join(today_session.get("safety_notes", [])))
+                else:
+                    st.markdown(f"**{_session_display_label(today_session)}**")
+                    st.write(f"Training time: {int(today_session.get('duration_minutes', 60))} minutes")
+                    st.write("Warm-up:", ", ".join(today_session.get("warmup", [])))
+                    for exercise in today_session.get("exercises", []):
+                        st.markdown(
+                            f"- **{exercise.get('name', '')}**: "
+                            f"{exercise.get('sets', '')} x {exercise.get('reps', '')}"
+                        )
+                    st.write("Cooldown:", ", ".join(today_session.get("cooldown", [])))
+                    if today_session.get("safety_notes"):
+                        st.write("Safety Notes:", " ".join(today_session.get("safety_notes", [])))
+            else:
+                st.info("Today is not a scheduled training day. Focus on recovery, walking, or easy mobility.")
+
+        with support_col:
+            st.markdown("**Today's Nutrition**")
+            _render_nutrition_targets(current_plan.get("nutrition_targets", {}))
+            for meal in current_plan.get("meal_suggestions", []):
+                st.markdown(
+                    f"- **{meal.get('meal_slot', '').title()}**: {meal.get('food_name', '')} "
+                    f"({meal.get('serving_size', '')})"
+                )
+            st.markdown("**Video Resources**")
+            for resource in session_videos:
+                st.markdown(f"- [{resource.get('exercise_name', '')}]({resource.get('url', '')})")
+
+    with weekly_container:
+        st.subheader("Training Cycle")
+        cycle_number = current_plan.get("cycle_number", 1)
+        cycle_start_date = current_plan.get("cycle_start_date", "")
+        cycle_end_date = current_plan.get("cycle_end_date", "")
+        st.caption(f"第 {cycle_number} 周期 · {cycle_start_date} to {cycle_end_date}")
+        st.write(current_plan.get("summary", ""))
+        cycle_sessions = [
+            session
+            for session in _sort_workout_sessions(current_plan.get("workout_sessions", []))
+            if not session.get("is_ad_hoc")
+        ]
+        for session in cycle_sessions:
+            session_label = _session_display_label(session)
+            with st.expander(session_label, expanded=False):
+                st.write(f"Training time: {int(session.get('duration_minutes', 60))} minutes")
+                for exercise in session.get("exercises", []):
+                    st.markdown(
+                        f"- **{exercise.get('name', '')}**: "
+                        f"{exercise.get('sets', '')} x {exercise.get('reps', '')}"
+                    )
+
+    with notes_container:
+        st.subheader("Coach Notes")
+        if _has_real_feedback(result) and evaluation_result:
+            st.markdown("**Evaluation Summary**")
+            st.write(evaluation_result.get("summary", ""))
+            reasons = evaluation_result.get("reasons", [])
+            if reasons:
+                st.markdown("**Revision Reasons**")
+                st.markdown("\n".join(f"- {reason}" for reason in reasons))
+        else:
+            st.write("No evaluation yet. Once you log a day, I'll summarize recovery, adherence, and revisions here.")
+
+    with history_container:
+        with st.expander("History", expanded=False):
+            st.write(f"Completed cycles stored: {len(st.session_state.get('week_history', []))}")
+            for item in reversed(st.session_state.get("week_history", [])[-3:]):
+                st.markdown(f"- Cycle **{item['week_start']}**: {item['summary']}")
+
+
+def _render_daily_feedback_section() -> None:
+    st.subheader("Daily Feedback")
+    st.caption("Share concrete facts and your feelings today. The agent will infer fatigue, pain, motivation, and recovery automatically.")
+
+    profile_inputs = st.session_state.get("profile_inputs")
+    result = st.session_state.get("agent_result")
+    current_state = result.get("current_state", {}) if result else {}
+
+    with st.form("daily_feedback_form", clear_on_submit=True):
+        completed_workouts = st.text_input(
+            "Completed Workouts",
+            placeholder="Example: walk, upper body session, stretching",
+            key="feedback_completed_workouts",
+        )
+        sleep_hours = st.number_input(
+            "Sleep Hours",
+            min_value=0.0,
+            max_value=12.0,
+            value=float(current_state.get("sleep_hours", 7.0) or 7.0),
+            step=0.5,
+        )
+        current_weight_kg = st.number_input(
+            "Current Weight (kg)",
+            min_value=35.0,
+            max_value=250.0,
+            value=float(current_state.get("weight_kg", 77.5) or 77.5),
+        )
+        current_body_fat_pct = st.number_input(
+            "Current Body Fat (%)",
+            min_value=3.0,
+            max_value=60.0,
+            value=float(current_state.get("body_fat_pct", 24.0) or 24.0),
+            step=0.1,
+        )
+        feelings = st.text_area(
+            "How is it going?",
+            placeholder="Share your feelings today, let's make tomorrow's plan.",
+            key="feedback_reflection",
+        )
+        submitted = st.form_submit_button("Make Tomorrow's Plan")
+
+    if submitted:
+        if not profile_inputs or not result:
+            st.error("Please create your first plan from the User Profile first.")
+            return
+
+        current_reference_date = _display_reference_date(
+            st.session_state.get("active_date", result.get("current_date", date.today().isoformat()))
+        )
+        current_session = _select_today_session(
+            _sort_workout_sessions(result.get("current_plan", {}).get("workout_sessions", [])),
+            current_reference_date,
+        )
+        previous_weight_kg = _previous_weight_from_result(result)
+        previous_body_fat_pct = _previous_body_fat_from_result(result)
+        assume_completed = not completed_workouts.strip() and not feelings.strip()
+        effective_completed_workouts = completed_workouts.strip() or _default_completed_workouts_text(
+            current_session,
+            assume_completed=assume_completed,
+        )
+
+        completed_training_days = set(st.session_state.get("completed_training_days", []))
+        if current_session.get("scheduled_date") and (completed_workouts.strip() or assume_completed):
+            completed_training_days.add(current_session["scheduled_date"])
+
+        inferred_feedback = _infer_feedback_signals(
+            completed_workouts=effective_completed_workouts,
+            sleep_hours=float(sleep_hours),
+            current_weight_kg=float(current_weight_kg),
+            current_body_fat_pct=float(current_body_fat_pct),
+            feelings=feelings,
+            previous_weight_kg=previous_weight_kg,
+            previous_body_fat_pct=previous_body_fat_pct,
+            assume_completed=assume_completed,
+        )
+        st.session_state["last_feedback_summary"] = inferred_feedback.get("summary", "")
+
+        planned_days = {
+            session.get("scheduled_date", "")
+            for session in _sort_workout_sessions(result.get("current_plan", {}).get("workout_sessions", []))
+            if session.get("scheduled_date") and not session.get("is_ad_hoc")
+        }
+        week_is_complete = bool(planned_days) and planned_days.issubset(completed_training_days)
+
+        target_date = _next_calendar_date(current_reference_date)
+        if week_is_complete:
+            current_cycle_label = f"{result.get('current_plan', {}).get('cycle_number', 1)}"
+            st.session_state["week_history"].append(
+                {
+                    "week_start": current_cycle_label,
+                    "summary": result.get("current_plan", {}).get("summary", "Completed week"),
+                }
+            )
+            target_date = _next_calendar_date(current_reference_date)
+            st.session_state["active_date"] = target_date
+            st.session_state["homepage_date_picker"] = _iso_to_date(target_date)
+            st.session_state["completed_training_days"] = []
+            st.session_state["last_action_message"] = "This cycle is complete. The next cycle has been generated."
+        else:
+            st.session_state["active_date"] = target_date
+            st.session_state["homepage_date_picker"] = _iso_to_date(target_date)
+            st.session_state["completed_training_days"] = sorted(completed_training_days)
+            st.session_state["last_action_message"] = "Tomorrow's plan was updated from your latest feedback."
+
+        follow_up_state = _build_feedback_update_state(
+            profile_inputs=profile_inputs,
+            previous_result=result,
+            completed_workouts=effective_completed_workouts,
+            sleep_hours=float(sleep_hours),
+            current_weight_kg=float(current_weight_kg),
+            current_body_fat_pct=float(current_body_fat_pct),
+            feelings=feelings,
+            inferred_feedback=inferred_feedback,
+            feedback_date=current_reference_date,
+            target_date=target_date,
+            week_rollover=week_is_complete,
+        )
+        _execute_agent(follow_up_state)
+
+    feedback_summary = st.session_state.get("last_feedback_summary", "")
+    if feedback_summary:
+        st.info(f"Agent interpretation: {feedback_summary}")
+
+
+def _build_initial_state(profile_inputs: dict[str, Any]) -> FitnessAgentState:
+    target_date = _display_reference_date(
+        st.session_state.get("active_date", profile_inputs.get("start_date", date.today().isoformat()))
+    )
+    return {
+        "thread_id": st.session_state["thread_id"],
+        "current_date": target_date,
+        "profile_notes": profile_inputs.get("profile_notes", ""),
+        "plan_change_request": "",
+        "normalized_change_request": {},
+        "user_profile": {
+            "user_id": "demo-user",
+            "age": profile_inputs["age"],
+            "sex": profile_inputs["sex"],
+            "height_cm": profile_inputs["height_cm"],
+            "weight_kg": profile_inputs["weight_kg"],
+            "body_fat_pct": profile_inputs["body_fat_pct"],
+            "fitness_level": profile_inputs["fitness_level"],
+            "activity_level": profile_inputs.get("activity_level", "lightly_active"),
+        },
+        "constraints": {
+            "sessions_per_week": profile_inputs["sessions_per_week"],
+            "minutes_per_session": profile_inputs.get("minutes_per_session", 60),
+            "available_days": profile_inputs["available_days"],
+            "program_start_date": profile_inputs["start_date"],
+            "injuries": _split_csv(profile_inputs["injuries_text"]),
+            "pain_sensitive_areas": [],
+            "food_allergies": _split_csv(profile_inputs["allergies_text"]),
+            "dietary_preferences": profile_inputs["dietary_preferences"],
+            "equipment_access": profile_inputs["equipment_access"],
+        },
+        "goals": {
+            "primary_goal": profile_inputs["primary_goal"],
+            "timeline_weeks": profile_inputs["timeline_weeks"],
+            "target_weight_kg": profile_inputs["target_weight_kg"],
+            "target_body_fat_pct": profile_inputs["target_body_fat_pct"],
+        },
+        "current_state": {
+            "date": target_date,
+            "weight_kg": profile_inputs["weight_kg"],
+            "body_fat_pct": profile_inputs["body_fat_pct"],
+            "sleep_hours": 7.0,
+            "recovery_score": 0.75,
+            "notes": profile_inputs.get("profile_notes", ""),
+        },
+        "latest_feedback": {},
+    }
+
+
+def _build_change_request_state(
+    *,
+    profile_inputs: dict[str, Any],
+    previous_result: FitnessAgentState,
+    change_request: str,
+) -> FitnessAgentState:
+    target_date = _display_reference_date(
+        st.session_state.get("active_date", previous_result.get("current_date", date.today().isoformat()))
+    )
+    previous_feedback = dict(previous_result.get("latest_feedback", {}))
+    previous_state = dict(previous_result.get("current_state", {}))
+    normalized_change_request = _normalize_change_request(change_request)
+    change_request_context = _build_change_request_context(change_request, normalized_change_request)
+    previous_notes = " ".join(
+        part
+        for part in [
+            previous_state.get("notes", ""),
+            change_request_context,
+        ]
+        if part
+    )
+    previous_feedback["performance_notes"] = previous_notes
+
+    base_state = _build_initial_state(profile_inputs)
+    return {
+        "thread_id": st.session_state["thread_id"],
+        "current_date": target_date,
+        "profile_notes": profile_inputs.get("profile_notes", ""),
+        "plan_change_request": change_request,
+        "normalized_change_request": normalized_change_request,
+        "user_profile": base_state["user_profile"],
+        "constraints": base_state["constraints"],
+        "goals": base_state["goals"],
+        "current_state": {
+            **previous_state,
+            "date": target_date,
+            "notes": previous_notes,
+        },
+        "latest_feedback": {
+            **previous_feedback,
+            "date": target_date,
+        },
+        "current_plan": previous_result.get("current_plan", {}),
+        "plan_history": previous_result.get("plan_history", []),
+        "feedback_history": previous_result.get("feedback_history", []),
+        "state_history": _append_unique_history_item(
+            previous_result.get("state_history", []),
+            previous_result.get("current_state", {}),
+            "date",
+        ),
+    }
+
+
+def _build_feedback_update_state(
+    *,
+    profile_inputs: dict[str, Any],
+    previous_result: FitnessAgentState,
+    completed_workouts: str,
+    sleep_hours: float,
+    current_weight_kg: float,
+    current_body_fat_pct: float,
+    feelings: str,
+    inferred_feedback: dict[str, Any],
+    feedback_date: str,
+    target_date: str,
+    week_rollover: bool,
+) -> FitnessAgentState:
+    completed_workout_list = _split_csv(completed_workouts)
+    previous_weight_kg = _previous_weight_from_result(previous_result)
+    previous_body_fat_pct = _previous_body_fat_from_result(previous_result)
+    feedback_notes = _compose_feedback_notes(
+        feelings=feelings,
+        previous_weight_kg=previous_weight_kg,
+        current_weight_kg=current_weight_kg,
+        previous_body_fat_pct=previous_body_fat_pct,
+        current_body_fat_pct=current_body_fat_pct,
+    )
+    inferred_summary = str(inferred_feedback.get("summary", "")).strip()
+    if inferred_summary and inferred_summary not in feedback_notes:
+        feedback_notes = " ".join(part for part in [feedback_notes, inferred_summary] if part)
+    normalized_feedback_request = _build_feedback_normalized_change_request(
+        feelings=feelings,
+        inferred_feedback=inferred_feedback,
+    )
+    feedback_plan_request = _build_feedback_plan_request(
+        feelings=feelings,
+        normalized_change_request=normalized_feedback_request,
+    )
+    if week_rollover:
+        feedback_notes = " ".join(
+            part
+            for part in [
+                feedback_notes,
+                "Generate the next week's plan after incorporating this completed-week feedback.",
+            ]
+            if part
+        )
+
+    base_state = _build_initial_state(profile_inputs)
+    return {
+        "thread_id": st.session_state["thread_id"],
+        "current_date": target_date,
+        "profile_notes": profile_inputs.get("profile_notes", ""),
+        "plan_change_request": feedback_plan_request,
+        "normalized_change_request": normalized_feedback_request,
+        "user_profile": base_state["user_profile"],
+        "constraints": base_state["constraints"],
+        "goals": base_state["goals"],
+        "current_state": {
+            "date": target_date,
+            "weight_kg": current_weight_kg,
+            "body_fat_pct": current_body_fat_pct,
+            "sleep_hours": sleep_hours,
+            "recovery_score": float(inferred_feedback["recovery_score"]),
+            "notes": feedback_notes,
+        },
+        "latest_feedback": {
+            "date": feedback_date,
+            "completed_workouts": completed_workout_list,
+            "adherence_score": float(inferred_feedback["adherence_score"]),
+            "fatigue_level": int(inferred_feedback["fatigue_level"]),
+            "pain_level": int(inferred_feedback["pain_level"]),
+            "pain_points": list(inferred_feedback["pain_points"]),
+            "soreness_areas": list(inferred_feedback["soreness_areas"]),
+            "motivation_level": int(inferred_feedback["motivation_level"]),
+            "performance_notes": feedback_notes,
+            "manual_log": {
+                "date": feedback_date,
+                "sleep_hours": sleep_hours,
+                "weight_kg": current_weight_kg,
+                "body_fat_pct": current_body_fat_pct,
+                "notes": feedback_notes,
+            },
+        },
+        "current_plan": previous_result.get("current_plan", {}),
+        "plan_history": previous_result.get("plan_history", []),
+        "feedback_history": previous_result.get("feedback_history", []),
+        "state_history": _append_unique_history_item(
+            previous_result.get("state_history", []),
+            previous_result.get("current_state", {}),
+            "date",
+        ),
+    }
+
+
+def _build_feedback_normalized_change_request(*, feelings: str, inferred_feedback: dict[str, Any]) -> dict[str, Any]:
+    text = feelings.lower()
+    pain_points = _coerce_string_list(inferred_feedback.get("pain_points"), [])
+    injury_reported = _feedback_reports_injury(text, inferred_feedback)
+    intensity_adjustment = ""
+
+    if not injury_reported:
+        fatigue_level = int(inferred_feedback.get("fatigue_level", 4))
+        motivation_level = int(inferred_feedback.get("motivation_level", 7))
+        recovery_score = float(inferred_feedback.get("recovery_score", 0.75))
+        if _feedback_sounds_low(text) or fatigue_level >= 7 or recovery_score <= 0.5 or motivation_level <= 4:
+            intensity_adjustment = "lower"
+        elif _feedback_sounds_high(text) or (fatigue_level <= 2 and recovery_score >= 0.85 and motivation_level >= 8):
+            intensity_adjustment = "higher"
+
+    summary_bits = []
+    if injury_reported:
+        summary_bits.append("Injury or pain was reported; cancel the target day's workout.")
+    elif intensity_adjustment == "lower":
+        summary_bits.append("The user sounds under-recovered or not good; reduce the target day's volume by one exercise.")
+    elif intensity_adjustment == "higher":
+        summary_bits.append("The user sounds well-recovered or strong; increase the target day's volume by one exercise.")
+
+    return {
+        "request_type": "recovery_change" if injury_reported else "workout_change",
+        "scope": "today_only",
+        "focus_category": "",
+        "injury_reported": injury_reported,
+        "injury_areas": pain_points,
+        "cancel_today": injury_reported,
+        "intensity_adjustment": intensity_adjustment,
+        "duration_adjustment": "",
+        "temporary_food_avoidances": [],
+        "permanent_food_preferences": [],
+        "summary": " ".join(summary_bits),
+        "confidence": 0.9 if summary_bits else 0.7,
+    }
+
+
+def _build_feedback_plan_request(*, feelings: str, normalized_change_request: dict[str, Any]) -> str:
+    feeling_text = feelings.strip()
+    adjustment = str(normalized_change_request.get("intensity_adjustment", "")).strip()
+    if normalized_change_request.get("injury_reported"):
+        return f"Daily feedback for tomorrow: {feeling_text} Injury or pain means cancel the target day's workout."
+    if adjustment:
+        return f"Daily feedback for tomorrow: {feeling_text} Intensity adjustment={adjustment}."
+    if feeling_text:
+        return f"Daily feedback for tomorrow: {feeling_text} Use normal training volume unless the feedback clearly implies otherwise."
+    return ""
+
+
+def _feedback_reports_injury(text: str, inferred_feedback: dict[str, Any]) -> bool:
+    injury_terms = [
+        "injured",
+        "injury",
+        "hurt",
+        "hurts",
+        "pain",
+        "painful",
+        "ache",
+        "strained",
+        "strain",
+        "sprained",
+        "sprain",
+        "pulled",
+        "受伤",
+        "疼",
+        "痛",
+        "拉伤",
+        "扭伤",
+    ]
+    if any(term in text for term in injury_terms):
+        return True
+    return int(inferred_feedback.get("pain_level", 0)) >= 4 or bool(inferred_feedback.get("pain_points"))
+
+
+def _feedback_sounds_low(text: str) -> bool:
+    low_terms = [
+        "not good",
+        "bad",
+        "awful",
+        "tired",
+        "exhausted",
+        "fatigued",
+        "low energy",
+        "drained",
+        "stressed",
+        "struggling",
+        "hard today",
+        "sleep badly",
+        "slept badly",
+        "状态不好",
+        "不太好",
+        "很累",
+        "太累",
+        "没精神",
+        "压力大",
+    ]
+    return any(term in text for term in low_terms)
+
+
+def _feedback_sounds_high(text: str) -> bool:
+    high_terms = [
+        "feel good",
+        "feeling good",
+        "great",
+        "excellent",
+        "strong",
+        "energetic",
+        "easy",
+        "too easy",
+        "ready for more",
+        "状态很好",
+        "感觉很好",
+        "精力很好",
+        "很轻松",
+        "太简单",
+        "加大",
+        "加强",
+    ]
+    return any(term in text for term in high_terms)
+
+
+def _infer_feedback_signals(
+    *,
+    completed_workouts: str,
+    sleep_hours: float,
+    current_weight_kg: float,
+    current_body_fat_pct: float,
+    feelings: str,
+    previous_weight_kg: float | None = None,
+    previous_body_fat_pct: float | None = None,
+    assume_completed: bool = False,
+) -> dict[str, Any]:
+    if assume_completed:
+        return _assumed_completion_feedback(sleep_hours)
+    prompt_payload = {
+        "completed_workouts": _split_csv(completed_workouts),
+        "sleep_hours": sleep_hours,
+        "feelings": feelings,
+    }
+    try:
+        inferred = call_model_json(
+            system_prompt=load_prompt("feedback_prompt.txt"),
+            user_prompt=json.dumps(prompt_payload, ensure_ascii=True, indent=2),
+            temperature=0.1,
+            max_tokens=1200,
+        )
+    except Exception:
+        return _fallback_feedback_inference(
+            completed_workouts,
+            sleep_hours,
+            feelings,
+            current_weight_kg=current_weight_kg,
+            previous_weight_kg=previous_weight_kg,
+            current_body_fat_pct=current_body_fat_pct,
+            previous_body_fat_pct=previous_body_fat_pct,
+        )
+    return _sanitize_inferred_feedback(
+        inferred,
+        completed_workouts,
+        sleep_hours,
+        feelings,
+        current_weight_kg=current_weight_kg,
+        previous_weight_kg=previous_weight_kg,
+        current_body_fat_pct=current_body_fat_pct,
+        previous_body_fat_pct=previous_body_fat_pct,
+    )
+
+
+def _assumed_completion_feedback(sleep_hours: float) -> dict[str, Any]:
+    recovery_score = 0.8
+    fatigue_level = 3
+    if sleep_hours < 6.0:
+        recovery_score = 0.6
+        fatigue_level = 5
+    elif sleep_hours < 7.0:
+        recovery_score = 0.7
+        fatigue_level = 4
+    return {
+        "adherence_score": 1.0,
+        "fatigue_level": fatigue_level,
+        "pain_level": 0,
+        "motivation_level": 7,
+        "recovery_score": recovery_score,
+        "pain_points": [],
+        "soreness_areas": [],
+        "summary": "No extra notes were provided, so the agent assumed the planned work was completed as scheduled.",
+    }
+
+
+def _sanitize_inferred_feedback(
+    inferred: dict[str, Any],
+    completed_workouts: str,
+    sleep_hours: float,
+    feelings: str,
+    current_weight_kg: float,
+    previous_weight_kg: float | None,
+    current_body_fat_pct: float,
+    previous_body_fat_pct: float | None,
+) -> dict[str, Any]:
+    fallback = _fallback_feedback_inference(
+        completed_workouts,
+        sleep_hours,
+        feelings,
+        current_weight_kg=current_weight_kg,
+        previous_weight_kg=previous_weight_kg,
+        current_body_fat_pct=current_body_fat_pct,
+        previous_body_fat_pct=previous_body_fat_pct,
+    )
+    return {
+        "adherence_score": _clamp_float(inferred.get("adherence_score"), 0.0, 1.0, fallback["adherence_score"]),
+        "fatigue_level": _clamp_int(inferred.get("fatigue_level"), 0, 10, fallback["fatigue_level"]),
+        "pain_level": _clamp_int(inferred.get("pain_level"), 0, 10, fallback["pain_level"]),
+        "motivation_level": _clamp_int(inferred.get("motivation_level"), 0, 10, fallback["motivation_level"]),
+        "recovery_score": _clamp_float(inferred.get("recovery_score"), 0.0, 1.0, fallback["recovery_score"]),
+        "pain_points": _coerce_string_list(inferred.get("pain_points"), fallback["pain_points"]),
+        "soreness_areas": _coerce_string_list(inferred.get("soreness_areas"), fallback["soreness_areas"]),
+        "summary": str(inferred.get("summary") or fallback["summary"]),
+    }
+
+
+def _fallback_feedback_inference(
+    completed_workouts: str,
+    sleep_hours: float,
+    feelings: str,
+    *,
+    current_weight_kg: float,
+    previous_weight_kg: float | None,
+    current_body_fat_pct: float,
+    previous_body_fat_pct: float | None,
+) -> dict[str, Any]:
+    text = feelings.lower()
+    completed = _split_csv(completed_workouts)
+
+    pain_keywords = ["pain", "hurt", "sore", "ache", "injury", "knee", "back", "ankle", "shoulder"]
+    tired_keywords = ["tired", "exhausted", "drained", "fatigue", "sleepy", "low energy"]
+    low_mood_keywords = ["unmotivated", "stressed", "down", "bad", "hard", "struggling"]
+
+    pain_level = 0
+    if any(keyword in text for keyword in pain_keywords):
+        pain_level = 5
+    fatigue_level = 4
+    if sleep_hours < 6 or any(keyword in text for keyword in tired_keywords):
+        fatigue_level = 7
+    motivation_level = 7
+    if any(keyword in text for keyword in low_mood_keywords):
+        motivation_level = 4
+    adherence_score = 0.85 if completed else 0.55
+    recovery_score = 0.75
+    if sleep_hours < 6:
+        recovery_score = 0.5
+    elif sleep_hours < 7:
+        recovery_score = 0.65
+
+    pain_points = [body_part for body_part in ["knee", "back", "shoulder", "ankle", "hip"] if body_part in text]
+    soreness_areas = [
+        area
+        for area in ["legs", "quads", "hamstrings", "glutes", "chest", "back", "arms"]
+        if area in text
+    ]
+
+    summary = "The agent inferred your update using a lightweight fallback."
+
+    return {
+        "adherence_score": adherence_score,
+        "fatigue_level": fatigue_level,
+        "pain_level": pain_level,
+        "motivation_level": motivation_level,
+        "recovery_score": recovery_score,
+        "pain_points": pain_points,
+        "soreness_areas": soreness_areas,
+        "summary": summary,
+    }
+
+
+def _execute_agent(state: FitnessAgentState) -> None:
+    try:
+        result = run_agent(state)
+    except Exception as exc:
+        st.error(str(exc))
+    else:
+        st.session_state["agent_result"] = result
+
+
+def _render_nutrition_targets(targets: dict[str, Any]) -> None:
+    if not targets:
+        st.write("No nutrition plan yet.")
+        return
+    st.write(
+        f"Daily calories: {targets.get('daily_calories', '-')}, "
+        f"protein: {targets.get('protein_g', '-')}g, "
+        f"carbs: {targets.get('carbs_g', '-')}g, "
+        f"fat: {targets.get('fat_g', '-')}g"
+    )
+    st.write(f"Hydration target: {targets.get('hydration_liters', '-')} L")
+
+
+def _select_today_session(workout_sessions: list[dict[str, Any]], reference_date: str) -> dict[str, Any]:
+    if not workout_sessions:
+        return {}
+    for session in workout_sessions:
+        if session.get("scheduled_date") == reference_date:
+            return session
+    return {}
+
+
+def _videos_for_session(session: dict[str, Any], resources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not session:
+        return []
+    exercise_names = {exercise.get("name", "") for exercise in session.get("exercises", [])}
+    seen_urls = set()
+    filtered = []
+    for resource in resources:
+        if resource.get("exercise_name") not in exercise_names:
+            continue
+        url = resource.get("url")
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
+        filtered.append(resource)
+    return filtered
+
+
+def _split_csv(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _default_equipment_access() -> list[str]:
+    return ["bodyweight", "dumbbell", "barbell", "bench", "rack", "cable_machine", "kettlebell", "box"]
+
+
+def _week_start_from_iso(value: str) -> date:
+    parsed = datetime.fromisoformat(value).date()
+    return parsed - timedelta(days=parsed.weekday())
+
+
+def _display_reference_date(value: str) -> str:
+    try:
+        parsed = datetime.fromisoformat(value).date()
+    except ValueError:
+        return date.today().isoformat()
+    return parsed.isoformat()
+
+
+def _iso_to_date(value: str) -> date:
+    try:
+        return datetime.fromisoformat(value).date()
+    except ValueError:
+        return date.today()
+
+
+def _sort_days(days: list[str]) -> list[str]:
+    normalized_days: list[str] = []
+    for day in days:
+        cleaned = str(day).strip()
+        if cleaned in WEEKDAY_INDEX and cleaned not in normalized_days:
+            normalized_days.append(cleaned)
+    return sorted(normalized_days, key=lambda item: WEEKDAY_INDEX[item])
+
+
+def _sort_workout_sessions(workout_sessions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(
+        workout_sessions,
+        key=lambda session: (
+            str(session.get("scheduled_date", "")) or "9999-12-31",
+            WEEKDAY_INDEX.get(str(session.get("day", "")), 99),
+        ),
+    )
+
+
+def _next_calendar_date(value: str) -> str:
+    return (_iso_to_date(value) + timedelta(days=1)).isoformat()
+
+
+def _default_completed_workouts_text(session: dict[str, Any], *, assume_completed: bool) -> str:
+    if not assume_completed or not session:
+        return ""
+    focus = str(session.get("focus", "")).strip()
+    if focus:
+        return f"{focus} session"
+    return "planned workout"
+
+
+def _previous_weight_from_result(result: FitnessAgentState) -> float | None:
+    current_state = result.get("current_state", {})
+    value = current_state.get("weight_kg")
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _previous_body_fat_from_result(result: FitnessAgentState) -> float | None:
+    current_state = result.get("current_state", {})
+    value = current_state.get("body_fat_pct")
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _weight_change_note(previous_weight_kg: float | None, current_weight_kg: float) -> str:
+    if previous_weight_kg is None:
+        return ""
+    delta = current_weight_kg - previous_weight_kg
+    if delta >= 0.8:
+        return (
+            f"Weight is up from {previous_weight_kg:.1f}kg to {current_weight_kg:.1f}kg since the last check-in. "
+            "Treat this as a real update and review nutrition, recovery, and adherence supportively."
+        )
+    return ""
+
+
+def _body_fat_change_note(previous_body_fat_pct: float | None, current_body_fat_pct: float) -> str:
+    if previous_body_fat_pct is None:
+        return ""
+    delta = current_body_fat_pct - previous_body_fat_pct
+    if delta >= 0.4:
+        return (
+            f"Body fat is up from {previous_body_fat_pct:.1f}% to {current_body_fat_pct:.1f}% since the last check-in. "
+            "Treat this as a real update and review nutrition quality, conditioning, and recovery supportively."
+        )
+    return ""
+
+
+def _compose_feedback_notes(
+    *,
+    feelings: str,
+    previous_weight_kg: float | None,
+    current_weight_kg: float,
+    previous_body_fat_pct: float | None,
+    current_body_fat_pct: float,
+) -> str:
+    return feelings.strip()
+
+
+def _session_display_label(session: dict[str, Any]) -> str:
+    scheduled_date = str(session.get("scheduled_date", "")).strip()
+    if scheduled_date:
+        try:
+            parsed = datetime.fromisoformat(scheduled_date)
+            return f"{parsed.strftime('%a %Y-%m-%d')} · {session.get('focus', '')}"
+        except ValueError:
+            pass
+    return f"{session.get('day', '')} - {session.get('focus', '')}"
+
+
+def _build_change_request_context(change_request: str, normalized_change_request: dict[str, Any]) -> str:
+    request = change_request.strip()
+    if not request:
+        return ""
+    normalized_summary = str(normalized_change_request.get("summary", "")).strip()
+    focus_category = str(normalized_change_request.get("focus_category", "")).strip()
+    normalized_bits = []
+    if normalized_summary:
+        normalized_bits.append(f"normalized intent: {normalized_summary}")
+    if focus_category:
+        normalized_bits.append(f"focus category={focus_category}")
+    normalized_text = "; ".join(normalized_bits).strip()
+    return (
+        "Temporary same-day request only: "
+        f"{request} "
+        f"{normalized_text} "
+        "If food swaps are mentioned here, apply them to today's plan only unless the user explicitly says they are permanent."
+    )
+
+
+def _normalize_change_request(change_request: str) -> dict[str, Any]:
+    request = change_request.strip()
+    if not request:
+        return {}
+
+    payload = {
+        "user_request": request,
+        "allowed_focus_categories": sorted(category for category in ALLOWED_FOCUS_CATEGORIES if category),
+        "allowed_scopes": sorted(ALLOWED_CHANGE_REQUEST_SCOPES),
+        "allowed_request_types": sorted(ALLOWED_CHANGE_REQUEST_TYPES),
+    }
+    try:
+        normalized = call_model_json(
+            system_prompt=load_prompt("change_request_prompt.txt"),
+            user_prompt=json.dumps(payload, ensure_ascii=True, indent=2),
+            temperature=0.1,
+            max_tokens=1000,
+        )
+    except Exception:
+        return {}
+    return _sanitize_normalized_change_request(normalized)
+
+
+def _sanitize_normalized_change_request(normalized: dict[str, Any]) -> dict[str, Any]:
+    request_type = str(normalized.get("request_type", "unclear")).strip().lower()
+    if request_type not in ALLOWED_CHANGE_REQUEST_TYPES:
+        request_type = "unclear"
+
+    scope = str(normalized.get("scope", "unclear")).strip().lower()
+    if scope not in ALLOWED_CHANGE_REQUEST_SCOPES:
+        scope = "unclear"
+
+    focus_category = str(normalized.get("focus_category", "")).strip()
+    if focus_category not in ALLOWED_FOCUS_CATEGORIES:
+        focus_category = ""
+
+    return {
+        "request_type": request_type,
+        "scope": scope,
+        "focus_category": focus_category,
+        "injury_reported": bool(normalized.get("injury_reported", False)),
+        "injury_areas": _coerce_string_list(normalized.get("injury_areas"), []),
+        "cancel_today": bool(normalized.get("cancel_today", False)),
+        "intensity_adjustment": str(normalized.get("intensity_adjustment", "")).strip(),
+        "duration_adjustment": str(normalized.get("duration_adjustment", "")).strip(),
+        "temporary_food_avoidances": _coerce_string_list(normalized.get("temporary_food_avoidances"), []),
+        "permanent_food_preferences": _coerce_string_list(normalized.get("permanent_food_preferences"), []),
+        "summary": str(normalized.get("summary", "")).strip(),
+        "confidence": _clamp_float(normalized.get("confidence"), 0.0, 1.0, 0.0),
+    }
+
+
+def _append_unique_history_item(history: list[dict], item: dict, date_key: str) -> list[dict]:
+    if not item:
+        return list(history)
+    updated_history = list(history)
+    item_date = item.get(date_key)
+    if updated_history and item_date and updated_history[-1].get(date_key) == item_date:
+        updated_history[-1] = item
+        return updated_history
+    updated_history.append(item)
+    return updated_history
+
+
+def _has_real_feedback(result: FitnessAgentState) -> bool:
+    latest_feedback = result.get("latest_feedback", {})
+    if not latest_feedback:
+        return False
+    if latest_feedback.get("completed_workouts"):
+        return True
+    if latest_feedback.get("pain_points") or latest_feedback.get("soreness_areas"):
+        return True
+    notes = str(latest_feedback.get("performance_notes", "")).strip()
+    manual_notes = str(latest_feedback.get("manual_log", {}).get("notes", "")).strip()
+    return bool(notes or manual_notes)
+
+
+def _clamp_float(value: Any, minimum: float, maximum: float, fallback: float) -> float:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    return max(minimum, min(maximum, numeric))
+
+
+def _clamp_int(value: Any, minimum: int, maximum: int, fallback: int) -> int:
+    try:
+        numeric = int(round(float(value)))
+    except (TypeError, ValueError):
+        return fallback
+    return max(minimum, min(maximum, numeric))
+
+
+def _coerce_string_list(value: Any, fallback: list[str]) -> list[str]:
+    if not isinstance(value, list):
+        return fallback
+    cleaned = [str(item).strip() for item in value if str(item).strip()]
+    return cleaned or fallback
+
+
+if __name__ == "__main__":
+    main()

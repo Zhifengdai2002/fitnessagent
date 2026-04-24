@@ -1,0 +1,1723 @@
+[
+  {
+    "id": "push_up",
+    "name": "Push-Up",
+    "target_muscle": [
+      "chest",
+      "triceps",
+      "front delts",
+      "core"
+    ],
+    "movement_type": "push",
+    "difficulty": "beginner",
+    "equipment": [
+      "bodyweight"
+    ],
+    "training_goal_tags": [
+      "weight_loss",
+      "strength",
+      "sculpting"
+    ],
+    "contraindications": [
+      "wrist pain",
+      "acute shoulder pain"
+    ],
+    "joint_stress": [
+      "wrist",
+      "shoulder"
+    ],
+    "recommended_for": [
+      "home_workout",
+      "beginner_program"
+    ],
+    "focus_tags": [
+      "upper_chest_arms"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=IODxDxX7oi4",
+    "notes": "Keep a straight line from head to heel and elevate the hands if needed."
+  },
+  {
+    "id": "incline_push_up",
+    "name": "Incline Push-Up",
+    "target_muscle": [
+      "chest",
+      "triceps",
+      "front delts"
+    ],
+    "movement_type": "push",
+    "difficulty": "beginner",
+    "equipment": [
+      "bodyweight",
+      "bench"
+    ],
+    "training_goal_tags": [
+      "weight_loss",
+      "sculpting"
+    ],
+    "contraindications": [
+      "wrist pain"
+    ],
+    "joint_stress": [
+      "wrist",
+      "shoulder"
+    ],
+    "recommended_for": [
+      "home_workout",
+      "beginner_program"
+    ],
+    "focus_tags": [
+      "upper_chest_arms"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=IODxDxX7oi4",
+    "notes": "Use a bench or box to reduce the loading while keeping full range of motion."
+  },
+  {
+    "id": "barbell_bench_press",
+    "name": "Barbell Bench Press",
+    "target_muscle": [
+      "chest",
+      "triceps",
+      "front delts"
+    ],
+    "movement_type": "push",
+    "difficulty": "intermediate",
+    "equipment": [
+      "barbell",
+      "bench",
+      "rack"
+    ],
+    "training_goal_tags": [
+      "strength",
+      "sculpting"
+    ],
+    "contraindications": [
+      "acute shoulder pain",
+      "elbow pain"
+    ],
+    "joint_stress": [
+      "shoulder",
+      "elbow"
+    ],
+    "recommended_for": [
+      "gym_program"
+    ],
+    "focus_tags": [
+      "upper_chest_arms"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=rT7DgCr-3pg",
+    "notes": "Retract the shoulder blades and keep the bar path controlled."
+  },
+  {
+    "id": "dumbbell_bench_press",
+    "name": "Dumbbell Bench Press",
+    "target_muscle": [
+      "chest",
+      "triceps",
+      "front delts"
+    ],
+    "movement_type": "push",
+    "difficulty": "beginner",
+    "equipment": [
+      "dumbbell",
+      "bench"
+    ],
+    "training_goal_tags": [
+      "strength",
+      "sculpting"
+    ],
+    "contraindications": [
+      "acute shoulder pain"
+    ],
+    "joint_stress": [
+      "shoulder"
+    ],
+    "recommended_for": [
+      "gym_program",
+      "beginner_program"
+    ],
+    "focus_tags": [
+      "upper_chest_arms"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=VmB1G1K7v94",
+    "notes": "Drive the dumbbells up with a steady tempo and avoid flaring the elbows too early."
+  },
+  {
+    "id": "dumbbell_floor_press",
+    "name": "Dumbbell Floor Press",
+    "target_muscle": [
+      "chest",
+      "triceps"
+    ],
+    "movement_type": "push",
+    "difficulty": "beginner",
+    "equipment": [
+      "dumbbell"
+    ],
+    "training_goal_tags": [
+      "strength",
+      "weight_loss",
+      "sculpting"
+    ],
+    "contraindications": [
+      "acute shoulder pain"
+    ],
+    "joint_stress": [
+      "shoulder",
+      "elbow"
+    ],
+    "recommended_for": [
+      "home_workout",
+      "beginner_program"
+    ],
+    "focus_tags": [
+      "upper_chest_arms"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=uUGDRwge4F8",
+    "notes": "A shoulder-friendlier press variation with a shorter range of motion."
+  },
+  {
+    "id": "close_grip_push_up",
+    "name": "Close-Grip Push-Up",
+    "target_muscle": [
+      "triceps",
+      "chest",
+      "core"
+    ],
+    "movement_type": "push",
+    "difficulty": "intermediate",
+    "equipment": [
+      "bodyweight"
+    ],
+    "training_goal_tags": [
+      "strength",
+      "sculpting",
+      "weight_loss"
+    ],
+    "contraindications": [
+      "wrist pain",
+      "elbow pain"
+    ],
+    "joint_stress": [
+      "wrist",
+      "elbow"
+    ],
+    "recommended_for": [
+      "home_workout"
+    ],
+    "focus_tags": [
+      "upper_chest_arms"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=IODxDxX7oi4",
+    "notes": "Keep the elbows closer to the body to emphasize the triceps."
+  },
+  {
+    "id": "triceps_pushdown",
+    "name": "Triceps Pushdown",
+    "target_muscle": [
+      "triceps"
+    ],
+    "movement_type": "isolation",
+    "difficulty": "beginner",
+    "equipment": [
+      "cable_machine"
+    ],
+    "training_goal_tags": [
+      "sculpting",
+      "strength"
+    ],
+    "contraindications": [
+      "elbow pain"
+    ],
+    "joint_stress": [
+      "elbow"
+    ],
+    "recommended_for": [
+      "gym_program"
+    ],
+    "focus_tags": [
+      "upper_chest_arms"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=2-LAMcpzODU",
+    "notes": "Pin the elbows by the sides and avoid swinging the torso."
+  },
+  {
+    "id": "overhead_triceps_extension",
+    "name": "Overhead Triceps Extension",
+    "target_muscle": [
+      "triceps"
+    ],
+    "movement_type": "isolation",
+    "difficulty": "beginner",
+    "equipment": [
+      "dumbbell"
+    ],
+    "training_goal_tags": [
+      "sculpting",
+      "strength"
+    ],
+    "contraindications": [
+      "shoulder pain",
+      "elbow pain"
+    ],
+    "joint_stress": [
+      "shoulder",
+      "elbow"
+    ],
+    "recommended_for": [
+      "home_workout",
+      "gym_program"
+    ],
+    "focus_tags": [
+      "upper_chest_arms"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=_gsUck-7M74",
+    "notes": "Keep the ribs down and avoid arching the lower back."
+  },
+  {
+    "id": "dumbbell_biceps_curl",
+    "name": "Dumbbell Biceps Curl",
+    "target_muscle": [
+      "biceps",
+      "forearms"
+    ],
+    "movement_type": "isolation",
+    "difficulty": "beginner",
+    "equipment": [
+      "dumbbell"
+    ],
+    "training_goal_tags": [
+      "sculpting",
+      "strength"
+    ],
+    "contraindications": [
+      "elbow pain"
+    ],
+    "joint_stress": [
+      "elbow"
+    ],
+    "recommended_for": [
+      "home_workout",
+      "beginner_program"
+    ],
+    "focus_tags": [
+      "upper_chest_arms"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=ykJmrZ5v0Oo",
+    "notes": "Keep the upper arm still and curl without leaning back."
+  },
+  {
+    "id": "hammer_curl",
+    "name": "Hammer Curl",
+    "target_muscle": [
+      "biceps",
+      "brachialis",
+      "forearms"
+    ],
+    "movement_type": "isolation",
+    "difficulty": "beginner",
+    "equipment": [
+      "dumbbell"
+    ],
+    "training_goal_tags": [
+      "sculpting",
+      "strength"
+    ],
+    "contraindications": [
+      "elbow pain"
+    ],
+    "joint_stress": [
+      "elbow"
+    ],
+    "recommended_for": [
+      "home_workout",
+      "gym_program"
+    ],
+    "focus_tags": [
+      "upper_chest_arms"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=zC3nLlEvin4",
+    "notes": "Use a neutral grip and control the lowering phase."
+  },
+  {
+    "id": "standing_overhead_press",
+    "name": "Standing Overhead Press",
+    "target_muscle": [
+      "shoulders",
+      "triceps",
+      "upper chest",
+      "core"
+    ],
+    "movement_type": "push",
+    "difficulty": "intermediate",
+    "equipment": [
+      "barbell"
+    ],
+    "training_goal_tags": [
+      "strength",
+      "sculpting"
+    ],
+    "contraindications": [
+      "shoulder impingement",
+      "low back pain"
+    ],
+    "joint_stress": [
+      "shoulder",
+      "lower_back"
+    ],
+    "recommended_for": [
+      "gym_program"
+    ],
+    "focus_tags": [
+      "upper_shoulders"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=2yjwXTZQDDI",
+    "notes": "Brace hard and avoid leaning backward."
+  },
+  {
+    "id": "seated_dumbbell_shoulder_press",
+    "name": "Seated Dumbbell Shoulder Press",
+    "target_muscle": [
+      "shoulders",
+      "triceps"
+    ],
+    "movement_type": "push",
+    "difficulty": "beginner",
+    "equipment": [
+      "dumbbell",
+      "bench"
+    ],
+    "training_goal_tags": [
+      "strength",
+      "sculpting"
+    ],
+    "contraindications": [
+      "shoulder pain"
+    ],
+    "joint_stress": [
+      "shoulder"
+    ],
+    "recommended_for": [
+      "gym_program",
+      "beginner_program"
+    ],
+    "focus_tags": [
+      "upper_shoulders"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=qEwKCR5JCog",
+    "notes": "Use a controlled range and stop before painful overhead positions."
+  },
+  {
+    "id": "arnold_press",
+    "name": "Arnold Press",
+    "target_muscle": [
+      "shoulders",
+      "triceps"
+    ],
+    "movement_type": "push",
+    "difficulty": "intermediate",
+    "equipment": [
+      "dumbbell"
+    ],
+    "training_goal_tags": [
+      "sculpting",
+      "strength"
+    ],
+    "contraindications": [
+      "shoulder pain"
+    ],
+    "joint_stress": [
+      "shoulder"
+    ],
+    "recommended_for": [
+      "gym_program"
+    ],
+    "focus_tags": [
+      "upper_shoulders"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=6Z15_WdXmVw",
+    "notes": "Rotate smoothly and avoid rushing the press."
+  },
+  {
+    "id": "dumbbell_lateral_raise",
+    "name": "Dumbbell Lateral Raise",
+    "target_muscle": [
+      "side delts"
+    ],
+    "movement_type": "isolation",
+    "difficulty": "beginner",
+    "equipment": [
+      "dumbbell"
+    ],
+    "training_goal_tags": [
+      "sculpting"
+    ],
+    "contraindications": [
+      "shoulder pain"
+    ],
+    "joint_stress": [
+      "shoulder"
+    ],
+    "recommended_for": [
+      "home_workout",
+      "gym_program"
+    ],
+    "focus_tags": [
+      "upper_shoulders"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=3VcKaXpzqRo",
+    "notes": "Raise to shoulder level with soft elbows and no shrugging."
+  },
+  {
+    "id": "front_raise",
+    "name": "Front Raise",
+    "target_muscle": [
+      "front delts"
+    ],
+    "movement_type": "isolation",
+    "difficulty": "beginner",
+    "equipment": [
+      "dumbbell"
+    ],
+    "training_goal_tags": [
+      "sculpting"
+    ],
+    "contraindications": [
+      "shoulder pain"
+    ],
+    "joint_stress": [
+      "shoulder"
+    ],
+    "recommended_for": [
+      "home_workout",
+      "gym_program"
+    ],
+    "focus_tags": [
+      "upper_shoulders"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=-t7fuZ0KhDA",
+    "notes": "Lift with control and keep the rib cage stacked."
+  },
+  {
+    "id": "rear_delt_fly",
+    "name": "Rear Delt Fly",
+    "target_muscle": [
+      "rear delts",
+      "upper back"
+    ],
+    "movement_type": "isolation",
+    "difficulty": "beginner",
+    "equipment": [
+      "dumbbell"
+    ],
+    "training_goal_tags": [
+      "sculpting",
+      "strength"
+    ],
+    "contraindications": [
+      "shoulder pain"
+    ],
+    "joint_stress": [
+      "shoulder"
+    ],
+    "recommended_for": [
+      "home_workout",
+      "gym_program"
+    ],
+    "focus_tags": [
+      "upper_shoulders",
+      "back_training"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=EA7u4Q_8HQ0",
+    "notes": "Hinge lightly and spread the arms wide without shrugging."
+  },
+  {
+    "id": "pike_push_up",
+    "name": "Pike Push-Up",
+    "target_muscle": [
+      "shoulders",
+      "triceps",
+      "upper chest"
+    ],
+    "movement_type": "push",
+    "difficulty": "intermediate",
+    "equipment": [
+      "bodyweight"
+    ],
+    "training_goal_tags": [
+      "strength",
+      "weight_loss"
+    ],
+    "contraindications": [
+      "wrist pain",
+      "shoulder pain"
+    ],
+    "joint_stress": [
+      "wrist",
+      "shoulder"
+    ],
+    "recommended_for": [
+      "home_workout"
+    ],
+    "focus_tags": [
+      "upper_shoulders"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=srprqb9sKzg",
+    "notes": "Stack the hips high and lower the crown of the head toward the floor."
+  },
+  {
+    "id": "lat_pulldown",
+    "name": "Lat Pulldown",
+    "target_muscle": [
+      "lats",
+      "upper back",
+      "biceps"
+    ],
+    "movement_type": "pull",
+    "difficulty": "beginner",
+    "equipment": [
+      "cable_machine"
+    ],
+    "training_goal_tags": [
+      "weight_loss",
+      "sculpting",
+      "strength"
+    ],
+    "contraindications": [
+      "acute shoulder pain"
+    ],
+    "joint_stress": [
+      "shoulder",
+      "elbow"
+    ],
+    "recommended_for": [
+      "gym_program",
+      "beginner_program"
+    ],
+    "focus_tags": [
+      "back_training"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=CAwf7n6Luuc",
+    "notes": "Pull to the upper chest and avoid excessive torso lean."
+  },
+  {
+    "id": "one_arm_dumbbell_row",
+    "name": "One-Arm Dumbbell Row",
+    "target_muscle": [
+      "lats",
+      "mid back",
+      "rear delts",
+      "biceps"
+    ],
+    "movement_type": "pull",
+    "difficulty": "beginner",
+    "equipment": [
+      "dumbbell",
+      "bench"
+    ],
+    "training_goal_tags": [
+      "strength",
+      "sculpting"
+    ],
+    "contraindications": [
+      "low back pain"
+    ],
+    "joint_stress": [
+      "lower_back",
+      "elbow"
+    ],
+    "recommended_for": [
+      "gym_program",
+      "beginner_program"
+    ],
+    "focus_tags": [
+      "back_training"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=pYcpY20QaE8",
+    "notes": "Drive the elbow toward the hip and keep the spine neutral."
+  },
+  {
+    "id": "seated_cable_row",
+    "name": "Seated Cable Row",
+    "target_muscle": [
+      "mid back",
+      "lats",
+      "biceps"
+    ],
+    "movement_type": "pull",
+    "difficulty": "beginner",
+    "equipment": [
+      "cable_machine"
+    ],
+    "training_goal_tags": [
+      "strength",
+      "sculpting"
+    ],
+    "contraindications": [
+      "low back pain"
+    ],
+    "joint_stress": [
+      "lower_back",
+      "elbow"
+    ],
+    "recommended_for": [
+      "gym_program"
+    ],
+    "focus_tags": [
+      "back_training"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=GZbfZ033f74",
+    "notes": "Initiate with the shoulder blades and keep the chest open."
+  },
+  {
+    "id": "inverted_row",
+    "name": "Inverted Row",
+    "target_muscle": [
+      "upper back",
+      "lats",
+      "biceps",
+      "core"
+    ],
+    "movement_type": "pull",
+    "difficulty": "intermediate",
+    "equipment": [
+      "rack",
+      "barbell"
+    ],
+    "training_goal_tags": [
+      "strength",
+      "weight_loss"
+    ],
+    "contraindications": [
+      "elbow pain"
+    ],
+    "joint_stress": [
+      "shoulder",
+      "elbow"
+    ],
+    "recommended_for": [
+      "gym_program"
+    ],
+    "focus_tags": [
+      "back_training"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=J3pQ0i4zK0k",
+    "notes": "Keep the body rigid and pull the chest toward the bar."
+  },
+  {
+    "id": "assisted_pull_up",
+    "name": "Assisted Pull-Up",
+    "target_muscle": [
+      "lats",
+      "upper back",
+      "biceps"
+    ],
+    "movement_type": "pull",
+    "difficulty": "intermediate",
+    "equipment": [
+      "rack",
+      "bodyweight"
+    ],
+    "training_goal_tags": [
+      "strength",
+      "sculpting"
+    ],
+    "contraindications": [
+      "shoulder pain",
+      "elbow pain"
+    ],
+    "joint_stress": [
+      "shoulder",
+      "elbow"
+    ],
+    "recommended_for": [
+      "gym_program"
+    ],
+    "focus_tags": [
+      "back_training"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=HRV5YKKaeVw",
+    "notes": "Use assistance to maintain full range and smooth control."
+  },
+  {
+    "id": "face_pull",
+    "name": "Face Pull",
+    "target_muscle": [
+      "rear delts",
+      "upper back",
+      "rotator cuff"
+    ],
+    "movement_type": "pull",
+    "difficulty": "beginner",
+    "equipment": [
+      "cable_machine"
+    ],
+    "training_goal_tags": [
+      "sculpting",
+      "strength"
+    ],
+    "contraindications": [
+      "acute shoulder pain"
+    ],
+    "joint_stress": [
+      "shoulder"
+    ],
+    "recommended_for": [
+      "gym_program",
+      "beginner_program"
+    ],
+    "focus_tags": [
+      "back_training",
+      "upper_shoulders"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=rep-qVOkqgk",
+    "notes": "Pull toward the face with elbows high and shoulder blades back."
+  },
+  {
+    "id": "chest_supported_row",
+    "name": "Chest-Supported Row",
+    "target_muscle": [
+      "mid back",
+      "lats",
+      "rear delts"
+    ],
+    "movement_type": "pull",
+    "difficulty": "beginner",
+    "equipment": [
+      "dumbbell",
+      "bench"
+    ],
+    "training_goal_tags": [
+      "strength",
+      "sculpting"
+    ],
+    "contraindications": [
+      "acute shoulder pain"
+    ],
+    "joint_stress": [
+      "shoulder",
+      "elbow"
+    ],
+    "recommended_for": [
+      "gym_program"
+    ],
+    "focus_tags": [
+      "back_training"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=6TSP1TRMUzs",
+    "notes": "Keep the chest planted on the bench and row without jerking."
+  },
+  {
+    "id": "straight_arm_pulldown",
+    "name": "Straight-Arm Pulldown",
+    "target_muscle": [
+      "lats",
+      "serratus",
+      "triceps"
+    ],
+    "movement_type": "pull",
+    "difficulty": "beginner",
+    "equipment": [
+      "cable_machine"
+    ],
+    "training_goal_tags": [
+      "sculpting",
+      "weight_loss"
+    ],
+    "contraindications": [
+      "shoulder pain"
+    ],
+    "joint_stress": [
+      "shoulder"
+    ],
+    "recommended_for": [
+      "gym_program"
+    ],
+    "focus_tags": [
+      "back_training"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=hwiaJ8L8pZ4",
+    "notes": "Keep the elbows softly bent and pull from the lats."
+  },
+  {
+    "id": "goblet_squat",
+    "name": "Goblet Squat",
+    "target_muscle": [
+      "quads",
+      "glutes",
+      "core"
+    ],
+    "movement_type": "squat",
+    "difficulty": "beginner",
+    "equipment": [
+      "dumbbell",
+      "kettlebell"
+    ],
+    "training_goal_tags": [
+      "weight_loss",
+      "strength",
+      "sculpting"
+    ],
+    "contraindications": [
+      "acute knee pain",
+      "hip pain"
+    ],
+    "joint_stress": [
+      "knee",
+      "hip"
+    ],
+    "recommended_for": [
+      "home_workout",
+      "beginner_program"
+    ],
+    "focus_tags": [
+      "lower_legs_glutes"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=MeIiIdhvXT4",
+    "notes": "Reduce depth if knee discomfort appears."
+  },
+  {
+    "id": "barbell_back_squat",
+    "name": "Barbell Back Squat",
+    "target_muscle": [
+      "quads",
+      "glutes",
+      "adductors",
+      "core"
+    ],
+    "movement_type": "squat",
+    "difficulty": "advanced",
+    "equipment": [
+      "barbell",
+      "rack"
+    ],
+    "training_goal_tags": [
+      "strength",
+      "sculpting"
+    ],
+    "contraindications": [
+      "acute knee pain",
+      "low back pain"
+    ],
+    "joint_stress": [
+      "knee",
+      "hip",
+      "lower_back"
+    ],
+    "recommended_for": [
+      "gym_program"
+    ],
+    "focus_tags": [
+      "lower_legs_glutes"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=ultWZbUMPL8",
+    "notes": "Use only when technique and mobility are solid."
+  },
+  {
+    "id": "romanian_deadlift",
+    "name": "Romanian Deadlift",
+    "target_muscle": [
+      "hamstrings",
+      "glutes",
+      "lower back"
+    ],
+    "movement_type": "hinge",
+    "difficulty": "intermediate",
+    "equipment": [
+      "barbell",
+      "dumbbell"
+    ],
+    "training_goal_tags": [
+      "strength",
+      "sculpting"
+    ],
+    "contraindications": [
+      "acute low back pain",
+      "hamstring strain"
+    ],
+    "joint_stress": [
+      "lower_back",
+      "hip"
+    ],
+    "recommended_for": [
+      "gym_program"
+    ],
+    "focus_tags": [
+      "lower_legs_glutes"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=2SHsk9AzdjA",
+    "notes": "Hinge at the hips and keep the load close to the body."
+  },
+  {
+    "id": "glute_bridge",
+    "name": "Glute Bridge",
+    "target_muscle": [
+      "glutes",
+      "hamstrings",
+      "core"
+    ],
+    "movement_type": "hinge",
+    "difficulty": "beginner",
+    "equipment": [
+      "bodyweight"
+    ],
+    "training_goal_tags": [
+      "weight_loss",
+      "sculpting",
+      "strength"
+    ],
+    "contraindications": [
+      "acute hip pain"
+    ],
+    "joint_stress": [
+      "hip"
+    ],
+    "recommended_for": [
+      "home_workout",
+      "beginner_program",
+      "low_impact_program"
+    ],
+    "focus_tags": [
+      "lower_legs_glutes",
+      "functional_core"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=wPM8icPu6H8",
+    "notes": "Pause at the top and avoid overextending the low back."
+  },
+  {
+    "id": "hip_thrust",
+    "name": "Hip Thrust",
+    "target_muscle": [
+      "glutes",
+      "hamstrings"
+    ],
+    "movement_type": "hinge",
+    "difficulty": "intermediate",
+    "equipment": [
+      "barbell",
+      "bench"
+    ],
+    "training_goal_tags": [
+      "strength",
+      "sculpting"
+    ],
+    "contraindications": [
+      "acute hip pain",
+      "low back pain"
+    ],
+    "joint_stress": [
+      "hip",
+      "lower_back"
+    ],
+    "recommended_for": [
+      "gym_program"
+    ],
+    "focus_tags": [
+      "lower_legs_glutes"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=LM8XHLYJoYs",
+    "notes": "Drive through the heels and keep the ribs down at lockout."
+  },
+  {
+    "id": "walking_lunge",
+    "name": "Walking Lunge",
+    "target_muscle": [
+      "quads",
+      "glutes",
+      "hamstrings"
+    ],
+    "movement_type": "single_leg",
+    "difficulty": "beginner",
+    "equipment": [
+      "bodyweight",
+      "dumbbell"
+    ],
+    "training_goal_tags": [
+      "weight_loss",
+      "sculpting",
+      "strength"
+    ],
+    "contraindications": [
+      "acute knee pain",
+      "balance issues"
+    ],
+    "joint_stress": [
+      "knee",
+      "hip"
+    ],
+    "recommended_for": [
+      "home_workout",
+      "gym_program"
+    ],
+    "focus_tags": [
+      "lower_legs_glutes"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=QOVaHwm-Q6U",
+    "notes": "Take controlled steps and keep the torso upright."
+  },
+  {
+    "id": "bulgarian_split_squat",
+    "name": "Bulgarian Split Squat",
+    "target_muscle": [
+      "quads",
+      "glutes",
+      "hamstrings"
+    ],
+    "movement_type": "single_leg",
+    "difficulty": "intermediate",
+    "equipment": [
+      "bodyweight",
+      "dumbbell",
+      "bench"
+    ],
+    "training_goal_tags": [
+      "strength",
+      "sculpting"
+    ],
+    "contraindications": [
+      "acute knee pain",
+      "balance issues"
+    ],
+    "joint_stress": [
+      "knee",
+      "hip"
+    ],
+    "recommended_for": [
+      "gym_program",
+      "home_workout"
+    ],
+    "focus_tags": [
+      "lower_legs_glutes"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=2C-uNgKwPLE",
+    "notes": "Use a smaller range at first and stay balanced over the front foot."
+  },
+  {
+    "id": "step_up",
+    "name": "Step-Up",
+    "target_muscle": [
+      "quads",
+      "glutes",
+      "hamstrings"
+    ],
+    "movement_type": "single_leg",
+    "difficulty": "beginner",
+    "equipment": [
+      "box",
+      "bench",
+      "bodyweight"
+    ],
+    "training_goal_tags": [
+      "weight_loss",
+      "strength",
+      "sculpting"
+    ],
+    "contraindications": [
+      "acute knee pain",
+      "balance issues"
+    ],
+    "joint_stress": [
+      "knee",
+      "hip"
+    ],
+    "recommended_for": [
+      "home_workout",
+      "low_impact_program"
+    ],
+    "focus_tags": [
+      "lower_legs_glutes"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=dQqApCGd5Ss",
+    "notes": "Choose a box height that allows smooth control."
+  },
+  {
+    "id": "leg_press",
+    "name": "Leg Press",
+    "target_muscle": [
+      "quads",
+      "glutes",
+      "hamstrings"
+    ],
+    "movement_type": "squat",
+    "difficulty": "beginner",
+    "equipment": [
+      "rack"
+    ],
+    "training_goal_tags": [
+      "strength",
+      "sculpting"
+    ],
+    "contraindications": [
+      "acute knee pain",
+      "low back pain"
+    ],
+    "joint_stress": [
+      "knee",
+      "hip"
+    ],
+    "recommended_for": [
+      "gym_program"
+    ],
+    "focus_tags": [
+      "lower_legs_glutes"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=IZxyjW7MPJQ",
+    "notes": "Do not let the knees collapse inward at the bottom."
+  },
+  {
+    "id": "reverse_lunge",
+    "name": "Reverse Lunge",
+    "target_muscle": [
+      "quads",
+      "glutes",
+      "hamstrings"
+    ],
+    "movement_type": "single_leg",
+    "difficulty": "beginner",
+    "equipment": [
+      "bodyweight",
+      "dumbbell"
+    ],
+    "training_goal_tags": [
+      "weight_loss",
+      "sculpting"
+    ],
+    "contraindications": [
+      "acute knee pain",
+      "balance issues"
+    ],
+    "joint_stress": [
+      "knee",
+      "hip"
+    ],
+    "recommended_for": [
+      "home_workout",
+      "beginner_program"
+    ],
+    "focus_tags": [
+      "lower_legs_glutes"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=wrwwXE_x-pQ",
+    "notes": "Step backward softly and keep pressure through the front foot."
+  },
+  {
+    "id": "forearm_plank",
+    "name": "Forearm Plank",
+    "target_muscle": [
+      "core",
+      "abs",
+      "glutes"
+    ],
+    "movement_type": "core",
+    "difficulty": "beginner",
+    "equipment": [
+      "bodyweight"
+    ],
+    "training_goal_tags": [
+      "weight_loss",
+      "sculpting",
+      "strength"
+    ],
+    "contraindications": [
+      "shoulder pain",
+      "low back pain"
+    ],
+    "joint_stress": [
+      "shoulder",
+      "lower_back"
+    ],
+    "recommended_for": [
+      "home_workout",
+      "beginner_program"
+    ],
+    "focus_tags": [
+      "functional_core"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=pSHjTRCQxIw",
+    "notes": "Keep the pelvis neutral and breathe steadily."
+  },
+  {
+    "id": "side_plank",
+    "name": "Side Plank",
+    "target_muscle": [
+      "obliques",
+      "core",
+      "glutes"
+    ],
+    "movement_type": "core",
+    "difficulty": "beginner",
+    "equipment": [
+      "bodyweight"
+    ],
+    "training_goal_tags": [
+      "sculpting",
+      "weight_loss"
+    ],
+    "contraindications": [
+      "shoulder pain"
+    ],
+    "joint_stress": [
+      "shoulder"
+    ],
+    "recommended_for": [
+      "home_workout",
+      "beginner_program"
+    ],
+    "focus_tags": [
+      "functional_core"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=K2VljzCC16g",
+    "notes": "Stack the hips and keep the neck long."
+  },
+  {
+    "id": "dead_bug",
+    "name": "Dead Bug",
+    "target_muscle": [
+      "core",
+      "deep abs",
+      "hip flexors"
+    ],
+    "movement_type": "core",
+    "difficulty": "beginner",
+    "equipment": [
+      "bodyweight"
+    ],
+    "training_goal_tags": [
+      "weight_loss",
+      "sculpting",
+      "strength"
+    ],
+    "contraindications": [
+      "hip flexor irritation"
+    ],
+    "joint_stress": [
+      "hip",
+      "lower_back"
+    ],
+    "recommended_for": [
+      "home_workout",
+      "beginner_program",
+      "low_impact_program"
+    ],
+    "focus_tags": [
+      "functional_core"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=g_BYB0R-4Ws",
+    "notes": "Move slowly and keep the lower back gently pressed down."
+  },
+  {
+    "id": "bird_dog",
+    "name": "Bird Dog",
+    "target_muscle": [
+      "core",
+      "glutes",
+      "low back"
+    ],
+    "movement_type": "core",
+    "difficulty": "beginner",
+    "equipment": [
+      "bodyweight"
+    ],
+    "training_goal_tags": [
+      "weight_loss",
+      "sculpting"
+    ],
+    "contraindications": [
+      "acute wrist pain"
+    ],
+    "joint_stress": [
+      "wrist",
+      "lower_back"
+    ],
+    "recommended_for": [
+      "home_workout",
+      "low_impact_program"
+    ],
+    "focus_tags": [
+      "functional_core"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=wiFNA3sqjCA",
+    "notes": "Reach long rather than high and keep the trunk still."
+  },
+  {
+    "id": "russian_twist",
+    "name": "Russian Twist",
+    "target_muscle": [
+      "obliques",
+      "abs",
+      "hip flexors"
+    ],
+    "movement_type": "core",
+    "difficulty": "intermediate",
+    "equipment": [
+      "bodyweight",
+      "dumbbell"
+    ],
+    "training_goal_tags": [
+      "weight_loss",
+      "sculpting"
+    ],
+    "contraindications": [
+      "low back pain"
+    ],
+    "joint_stress": [
+      "lower_back",
+      "hip"
+    ],
+    "recommended_for": [
+      "home_workout",
+      "gym_program"
+    ],
+    "focus_tags": [
+      "functional_core"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=wkD8rjkodUI",
+    "notes": "Rotate through the trunk with control, not momentum."
+  },
+  {
+    "id": "hanging_knee_raise",
+    "name": "Hanging Knee Raise",
+    "target_muscle": [
+      "abs",
+      "hip flexors",
+      "grip"
+    ],
+    "movement_type": "core",
+    "difficulty": "intermediate",
+    "equipment": [
+      "rack",
+      "bodyweight"
+    ],
+    "training_goal_tags": [
+      "sculpting",
+      "strength"
+    ],
+    "contraindications": [
+      "shoulder pain",
+      "hip flexor irritation"
+    ],
+    "joint_stress": [
+      "shoulder",
+      "hip"
+    ],
+    "recommended_for": [
+      "gym_program"
+    ],
+    "focus_tags": [
+      "functional_core"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=Rd8jSmQbN8w",
+    "notes": "Curl the pelvis up instead of swinging the legs."
+  },
+  {
+    "id": "box_jump",
+    "name": "Box Jump",
+    "target_muscle": [
+      "quads",
+      "glutes",
+      "calves"
+    ],
+    "movement_type": "power",
+    "difficulty": "intermediate",
+    "equipment": [
+      "box"
+    ],
+    "training_goal_tags": [
+      "strength",
+      "weight_loss"
+    ],
+    "contraindications": [
+      "acute knee pain",
+      "ankle instability"
+    ],
+    "joint_stress": [
+      "knee",
+      "ankle"
+    ],
+    "recommended_for": [
+      "gym_program"
+    ],
+    "focus_tags": [
+      "functional_power"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=52r_Ul5k03g",
+    "notes": "Land softly and step down between reps to reduce impact."
+  },
+  {
+    "id": "jump_squat",
+    "name": "Jump Squat",
+    "target_muscle": [
+      "quads",
+      "glutes",
+      "calves"
+    ],
+    "movement_type": "power",
+    "difficulty": "intermediate",
+    "equipment": [
+      "bodyweight"
+    ],
+    "training_goal_tags": [
+      "weight_loss",
+      "strength"
+    ],
+    "contraindications": [
+      "acute knee pain",
+      "ankle pain"
+    ],
+    "joint_stress": [
+      "knee",
+      "ankle"
+    ],
+    "recommended_for": [
+      "home_workout"
+    ],
+    "focus_tags": [
+      "functional_power"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=CVaEhXotL7M",
+    "notes": "Dip shallow and explode upward while landing softly."
+  },
+  {
+    "id": "kettlebell_swing",
+    "name": "Kettlebell Swing",
+    "target_muscle": [
+      "glutes",
+      "hamstrings",
+      "core"
+    ],
+    "movement_type": "power",
+    "difficulty": "intermediate",
+    "equipment": [
+      "kettlebell"
+    ],
+    "training_goal_tags": [
+      "weight_loss",
+      "strength"
+    ],
+    "contraindications": [
+      "acute low back pain",
+      "hamstring strain"
+    ],
+    "joint_stress": [
+      "hip",
+      "lower_back"
+    ],
+    "recommended_for": [
+      "gym_program",
+      "home_workout"
+    ],
+    "focus_tags": [
+      "functional_power",
+      "functional_conditioning"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=YSxHifyI2cY",
+    "notes": "Generate force from the hips and keep the arms relaxed."
+  },
+  {
+    "id": "dumbbell_thruster",
+    "name": "Dumbbell Thruster",
+    "target_muscle": [
+      "quads",
+      "glutes",
+      "shoulders",
+      "triceps"
+    ],
+    "movement_type": "power",
+    "difficulty": "intermediate",
+    "equipment": [
+      "dumbbell"
+    ],
+    "training_goal_tags": [
+      "weight_loss",
+      "strength"
+    ],
+    "contraindications": [
+      "shoulder pain",
+      "acute knee pain"
+    ],
+    "joint_stress": [
+      "shoulder",
+      "knee"
+    ],
+    "recommended_for": [
+      "home_workout",
+      "gym_program"
+    ],
+    "focus_tags": [
+      "functional_power",
+      "functional_conditioning"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=L219ltL15zk",
+    "notes": "Drive hard out of the squat and press in one fluid motion."
+  },
+  {
+    "id": "mountain_climber",
+    "name": "Mountain Climber",
+    "target_muscle": [
+      "core",
+      "shoulders",
+      "hip flexors"
+    ],
+    "movement_type": "conditioning",
+    "difficulty": "beginner",
+    "equipment": [
+      "bodyweight"
+    ],
+    "training_goal_tags": [
+      "weight_loss",
+      "sculpting"
+    ],
+    "contraindications": [
+      "wrist pain",
+      "hip flexor irritation"
+    ],
+    "joint_stress": [
+      "wrist",
+      "hip"
+    ],
+    "recommended_for": [
+      "home_workout",
+      "beginner_program"
+    ],
+    "focus_tags": [
+      "functional_conditioning"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=nmwgirgXLYM",
+    "notes": "Keep the hips low and move the knees quickly without bouncing."
+  },
+  {
+    "id": "burpee",
+    "name": "Burpee",
+    "target_muscle": [
+      "full body",
+      "core",
+      "quads",
+      "chest"
+    ],
+    "movement_type": "conditioning",
+    "difficulty": "intermediate",
+    "equipment": [
+      "bodyweight"
+    ],
+    "training_goal_tags": [
+      "weight_loss"
+    ],
+    "contraindications": [
+      "acute wrist pain",
+      "acute knee pain"
+    ],
+    "joint_stress": [
+      "wrist",
+      "knee"
+    ],
+    "recommended_for": [
+      "home_workout"
+    ],
+    "focus_tags": [
+      "functional_conditioning"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=TU8QYVW0gDU",
+    "notes": "Step back instead of jumping if impact tolerance is low."
+  },
+  {
+    "id": "jump_rope",
+    "name": "Jump Rope",
+    "target_muscle": [
+      "calves",
+      "shoulders",
+      "cardio"
+    ],
+    "movement_type": "conditioning",
+    "difficulty": "beginner",
+    "equipment": [
+      "bodyweight"
+    ],
+    "training_goal_tags": [
+      "weight_loss"
+    ],
+    "contraindications": [
+      "ankle pain",
+      "calf strain"
+    ],
+    "joint_stress": [
+      "ankle"
+    ],
+    "recommended_for": [
+      "home_workout",
+      "gym_program"
+    ],
+    "focus_tags": [
+      "functional_conditioning"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=1BZMwVre5oc",
+    "notes": "Keep jumps small and land softly on the balls of the feet."
+  },
+  {
+    "id": "high_knees",
+    "name": "High Knees",
+    "target_muscle": [
+      "hip flexors",
+      "core",
+      "cardio"
+    ],
+    "movement_type": "conditioning",
+    "difficulty": "beginner",
+    "equipment": [
+      "bodyweight"
+    ],
+    "training_goal_tags": [
+      "weight_loss"
+    ],
+    "contraindications": [
+      "ankle pain",
+      "hip flexor irritation"
+    ],
+    "joint_stress": [
+      "ankle",
+      "hip"
+    ],
+    "recommended_for": [
+      "home_workout",
+      "beginner_program"
+    ],
+    "focus_tags": [
+      "functional_conditioning"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=8opcQdC-V-U",
+    "notes": "Pump the arms and keep the torso upright while staying light on the feet."
+  },
+  {
+    "id": "skater_hops",
+    "name": "Skater Hops",
+    "target_muscle": [
+      "glutes",
+      "quads",
+      "cardio"
+    ],
+    "movement_type": "conditioning",
+    "difficulty": "intermediate",
+    "equipment": [
+      "bodyweight"
+    ],
+    "training_goal_tags": [
+      "weight_loss",
+      "sculpting"
+    ],
+    "contraindications": [
+      "ankle instability",
+      "acute knee pain"
+    ],
+    "joint_stress": [
+      "ankle",
+      "knee"
+    ],
+    "recommended_for": [
+      "home_workout"
+    ],
+    "focus_tags": [
+      "functional_conditioning",
+      "functional_power"
+    ],
+    "youtube_url": "https://www.youtube.com/watch?v=XFQohfOEu3E",
+    "notes": "Stick each landing before pushing into the next bound."
+  }
+]

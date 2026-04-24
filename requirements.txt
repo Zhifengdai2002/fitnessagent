@@ -1,0 +1,8 @@
+langgraph
+langchain
+langchain-openai
+pydantic
+python-dotenv
+streamlit
+google-api-python-client
+chromadb

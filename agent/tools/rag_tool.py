@@ -1,0 +1,1 @@
+"""RAG lookup tool placeholder."""

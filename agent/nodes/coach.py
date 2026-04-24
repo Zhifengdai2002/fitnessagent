@@ -1,0 +1,1 @@
+"""Coaching node placeholder."""
