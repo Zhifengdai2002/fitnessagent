@@ -136,7 +136,7 @@ def plan_generation_node(state: FitnessAgentState) -> FitnessAgentState:
     hard_stop_context = _build_hard_stop_context(state)
     cancel_today = bool(hard_stop_context.get("cancel"))
     requested_focus = None if cancel_today else _requested_focus_from_state(state)
-    exercise_count_delta = _exercise_count_delta_from_state(state)
+    intensity_adjustment = "" if cancel_today else _intensity_adjustment_from_state(state)
     target_date = _safe_date_string(state.get("current_date", ""))
     session_focuses = _apply_change_request_focus_override(
         session_focuses=session_focuses,
@@ -158,7 +158,11 @@ def plan_generation_node(state: FitnessAgentState) -> FitnessAgentState:
             equipment_access=equipment_access,
             excluded_conditions=excluded_conditions,
             excluded_exercises=constraints.get("excluded_exercises", []),
-            exercise_count_delta=exercise_count_delta if slot["scheduled_date"] == target_date else 0,
+            exercise_count_delta=_exercise_count_delta_for_intensity(
+                fitness_level,
+                intensity_adjustment if slot["scheduled_date"] == target_date else "",
+            ),
+            intensity_adjustment=intensity_adjustment if slot["scheduled_date"] == target_date else "",
         )
         for slot, focus in zip(cycle_slots, session_focuses)
     ]
@@ -171,7 +175,8 @@ def plan_generation_node(state: FitnessAgentState) -> FitnessAgentState:
         training_goal=training_goal,
         equipment_access=equipment_access,
         excluded_conditions=excluded_conditions,
-        exercise_count_delta=exercise_count_delta,
+        exercise_count_delta=_exercise_count_delta_for_intensity(fitness_level, intensity_adjustment),
+        intensity_adjustment=intensity_adjustment,
     )
 
     nutrition_candidate_pool = _build_food_candidates(constraints)
@@ -245,6 +250,13 @@ def plan_generation_node(state: FitnessAgentState) -> FitnessAgentState:
             previous_plan=state.get("current_plan", {}),
             target_date=target_date,
             has_targeted_update=bool(state.get("plan_change_request") or state.get("normalized_change_request")),
+        )
+        workout_sessions = _resolve_same_cycle_focus_conflict(
+            workout_sessions=workout_sessions,
+            previous_plan=state.get("current_plan", {}),
+            target_date=target_date,
+            requested_focus=requested_focus,
+            state=state,
         )
     workout_sessions = _sort_workout_sessions(workout_sessions)
     nutrition_targets = _finalize_nutrition_targets(
@@ -412,49 +424,56 @@ def _requested_focus_from_state(state: FitnessAgentState) -> str | None:
     return _requested_focus_from_change_request(str(state.get("plan_change_request", "")))
 
 
-def _exercise_count_delta_from_state(state: FitnessAgentState) -> int:
-    """Convert intensity requests into the only allowed volume adjustment: +/- one exercise."""
-
+def _intensity_adjustment_from_state(state: FitnessAgentState) -> str:
     normalized_change_request = state.get("normalized_change_request", {})
     normalized_intensity = str(normalized_change_request.get("intensity_adjustment", "")).strip().lower()
-    normalized_delta = _intensity_delta_from_text(normalized_intensity)
-    if normalized_delta:
-        return normalized_delta
+    if normalized_intensity in {"higher", "lower"}:
+        return normalized_intensity
 
-    latest_request = str(state.get("plan_change_request", "")).strip()
-    request_delta = _intensity_delta_from_text(latest_request)
-    if request_delta:
-        return request_delta
-
-    latest_feedback = state.get("latest_feedback", {})
-    feedback_text = " ".join(
+    text = " ".join(
         str(part)
         for part in [
-            latest_feedback.get("performance_notes", ""),
-            latest_feedback.get("manual_log", {}).get("notes", ""),
+            state.get("plan_change_request", ""),
+            state.get("latest_feedback", {}).get("performance_notes", ""),
+            state.get("latest_feedback", {}).get("manual_log", {}).get("notes", ""),
             state.get("current_state", {}).get("notes", ""),
         ]
         if part
-    )
-    feedback_delta = _intensity_delta_from_text(feedback_text)
-    if feedback_delta:
-        return feedback_delta
-
-    fatigue_level = int(_safe_float(latest_feedback.get("fatigue_level"), 4))
-    motivation_level = int(_safe_float(latest_feedback.get("motivation_level"), 7))
-    recovery_score = _safe_float(state.get("current_state", {}).get("recovery_score"), 0.75)
-    if fatigue_level >= 7 or recovery_score <= 0.5 or motivation_level <= 4:
-        return -1
-    if fatigue_level <= 2 and recovery_score >= 0.85 and motivation_level >= 8:
-        return 1
-    return 0
+    ).lower()
+    return _intensity_adjustment_from_text(text)
 
 
-def _intensity_delta_from_text(text: str) -> int:
-    normalized_text = text.lower()
-    if not normalized_text:
-        return 0
-
+def _intensity_adjustment_from_text(text: str) -> str:
+    higher_terms = [
+        "higher",
+        "increase",
+        "harder",
+        "more intense",
+        "more intensity",
+        "add intensity",
+        "add exercise",
+        "add one exercise",
+        "more exercises",
+        "challenge",
+        "push harder",
+        "excited",
+        "feel good",
+        "feeling good",
+        "great",
+        "strong",
+        "energetic",
+        "too easy",
+        "ready for more",
+        "加强",
+        "加大强度",
+        "加量",
+        "加一个动作",
+        "状态很好",
+        "感觉很好",
+        "很兴奋",
+        "精力很好",
+        "太简单",
+    ]
     lower_terms = [
         "lower",
         "reduce",
@@ -467,13 +486,14 @@ def _intensity_delta_from_text(text: str) -> int:
         "too hard",
         "too tired",
         "not good",
-        "slept badly",
-        "sleep badly",
+        "uncomfortable",
+        "tired",
         "fatigued",
         "exhausted",
         "low energy",
         "drained",
         "struggling",
+        "不舒服",
         "降低强度",
         "减量",
         "轻一点",
@@ -482,47 +502,17 @@ def _intensity_delta_from_text(text: str) -> int:
         "不太好",
         "太累",
     ]
-    higher_terms = [
-        "higher",
-        "increase",
-        "harder",
-        "more intense",
-        "more intensity",
-        "add intensity",
-        "add exercise",
-        "add one exercise",
-        "add an exercise",
-        "add one action",
-        "add an action",
-        "add one movement",
-        "more exercises",
-        "one more exercise",
-        "one more movement",
-        "challenge",
-        "push harder",
-        "feel good",
-        "feeling good",
-        "great",
-        "excellent",
-        "strong",
-        "energetic",
-        "too easy",
-        "ready for more",
-        "加大强度",
-        "加强",
-        "加量",
-        "加一个动作",
-        "加一项",
-        "多一点",
-        "状态很好",
-        "感觉很好",
-        "精力很好",
-        "太简单",
-    ]
+    if any(term in text for term in lower_terms):
+        return "lower"
+    if any(term in text for term in higher_terms):
+        return "higher"
+    return ""
 
-    if any(term in normalized_text for term in higher_terms):
+
+def _exercise_count_delta_for_intensity(fitness_level: str, intensity_adjustment: str) -> int:
+    if intensity_adjustment == "higher":
         return 1
-    if any(term in normalized_text for term in lower_terms):
+    if intensity_adjustment == "lower" and fitness_level != "beginner":
         return -1
     return 0
 
@@ -680,6 +670,7 @@ def _with_ad_hoc_today_blueprint(
     equipment_access: list[str],
     excluded_conditions: list[str],
     exercise_count_delta: int,
+    intensity_adjustment: str = "",
 ) -> list[dict]:
     current_date_iso = _safe_date_string(current_date)
     if not requested_focus or not current_date_iso:
@@ -705,6 +696,7 @@ def _with_ad_hoc_today_blueprint(
         excluded_conditions=excluded_conditions,
         excluded_exercises=constraints.get("excluded_exercises", []),
         exercise_count_delta=exercise_count_delta,
+        intensity_adjustment=intensity_adjustment,
     )
     ad_hoc_blueprint["is_ad_hoc"] = True
     return [ad_hoc_blueprint, *cycle_blueprints]
@@ -797,6 +789,176 @@ def _preserve_other_sessions_for_targeted_update(
         previous_session = previous_by_date.get(scheduled_date)
         preserved_sessions.append(deepcopy(previous_session) if previous_session else session)
     return preserved_sessions
+
+
+def _resolve_same_cycle_focus_conflict(
+    *,
+    workout_sessions: list[WorkoutSession],
+    previous_plan: dict,
+    target_date: str,
+    requested_focus: str | None,
+    state: FitnessAgentState,
+) -> list[WorkoutSession]:
+    if not requested_focus or not previous_plan or not target_date:
+        return workout_sessions
+
+    change_mode = _change_request_mode(state)
+    if change_mode not in {"add", "replace"}:
+        return workout_sessions
+
+    target_focus_label = _focus_label(_focus_key_from_value(requested_focus))
+    duplicate_session = _find_same_cycle_duplicate_focus_session(
+        sessions=workout_sessions,
+        target_date=target_date,
+        target_focus_label=target_focus_label,
+    )
+    if not duplicate_session:
+        return workout_sessions
+
+    if change_mode == "add":
+        return _replace_session_on_date(
+            workout_sessions,
+            str(duplicate_session.get("scheduled_date", "")),
+            _build_rest_session_from_session(
+                duplicate_session,
+                reason=f"{target_focus_label} was added temporarily on {target_date}, so this duplicate session becomes recovery.",
+            ),
+        )
+
+    previous_target_session = _session_for_date(
+        previous_plan.get("workout_sessions", []),
+        target_date,
+    )
+    if not previous_target_session:
+        return _replace_session_on_date(
+            workout_sessions,
+            str(duplicate_session.get("scheduled_date", "")),
+            _build_rest_session_from_session(
+                duplicate_session,
+                reason=f"{target_focus_label} moved to {target_date}, so this duplicate session becomes recovery.",
+            ),
+        )
+
+    swapped_session = _copy_session_onto_slot(previous_target_session, duplicate_session)
+    return _replace_session_on_date(
+        workout_sessions,
+        str(duplicate_session.get("scheduled_date", "")),
+        swapped_session,
+    )
+
+
+def _find_same_cycle_duplicate_focus_session(
+    *,
+    sessions: list[WorkoutSession],
+    target_date: str,
+    target_focus_label: str,
+) -> WorkoutSession | None:
+    target_session = _session_for_date(sessions, target_date)
+    if not target_session:
+        return None
+
+    target_cycle = target_session.get("cycle_number")
+    for session in sessions:
+        scheduled_date = str(session.get("scheduled_date", ""))
+        if scheduled_date == target_date:
+            continue
+        if session.get("is_ad_hoc") or session.get("is_cancelled"):
+            continue
+        if target_cycle and session.get("cycle_number") != target_cycle:
+            continue
+        if str(session.get("focus", "")) == target_focus_label:
+            return session
+    return None
+
+
+def _change_request_mode(state: FitnessAgentState) -> str:
+    normalized_change_request = state.get("normalized_change_request", {})
+    if normalized_change_request.get("cancel_today") or normalized_change_request.get("injury_reported"):
+        return "cancel"
+
+    request_text = str(state.get("plan_change_request", "")).lower()
+    temporary_add_terms = [
+        "temporarily add",
+        "temporary add",
+        "add",
+        "extra",
+        "also do",
+        "can i do",
+        "can i add",
+        "could i do",
+        "could i add",
+        "加练",
+        "加一个",
+        "加一节",
+        "临时加",
+        "加",
+    ]
+    replace_terms = [
+        "replace",
+        "switch",
+        "swap",
+        "change today's",
+        "change today",
+        "instead",
+        "更换",
+        "替换",
+        "换成",
+        "改成",
+        "换",
+        "改",
+    ]
+    if any(term in request_text for term in replace_terms):
+        return "replace"
+    if any(term in request_text for term in temporary_add_terms):
+        return "add"
+    if normalized_change_request.get("focus_category"):
+        return "replace"
+    return ""
+
+
+def _session_for_date(sessions: list[dict], target_date: str) -> dict | None:
+    for session in sessions:
+        if str(session.get("scheduled_date", "")) == target_date:
+            return session
+    return None
+
+
+def _replace_session_on_date(
+    sessions: list[WorkoutSession],
+    target_date: str,
+    replacement: WorkoutSession,
+) -> list[WorkoutSession]:
+    return [
+        deepcopy(replacement) if str(session.get("scheduled_date", "")) == target_date else session
+        for session in sessions
+    ]
+
+
+def _copy_session_onto_slot(source_session: dict, slot_session: dict) -> WorkoutSession:
+    copied = deepcopy(source_session)
+    copied["day"] = slot_session.get("day", copied.get("day", ""))
+    copied["scheduled_date"] = slot_session.get("scheduled_date", copied.get("scheduled_date", ""))
+    copied["cycle_number"] = slot_session.get("cycle_number", copied.get("cycle_number", 1))
+    copied["cycle_session_index"] = slot_session.get("cycle_session_index", copied.get("cycle_session_index", 1))
+    copied["is_ad_hoc"] = bool(slot_session.get("is_ad_hoc", False))
+    return copied
+
+
+def _build_rest_session_from_session(session: dict, *, reason: str) -> WorkoutSession:
+    return {
+        "day": str(session.get("day", "")),
+        "scheduled_date": str(session.get("scheduled_date", "")),
+        "cycle_number": int(session.get("cycle_number", 1)),
+        "cycle_session_index": int(session.get("cycle_session_index", 1)),
+        "is_ad_hoc": bool(session.get("is_ad_hoc", False)),
+        "is_cancelled": True,
+        "focus": "Recovery / Rest",
+        "duration_minutes": 0,
+        "warmup": [],
+        "exercises": [],
+        "cooldown": [],
+        "safety_notes": [reason],
+    }
 
 
 def _build_cancelled_today_session(*, current_date: str, cancellation_context: dict) -> WorkoutSession:
@@ -953,9 +1115,11 @@ def _build_session_blueprint(
     excluded_conditions: list[str],
     excluded_exercises: list[str],
     exercise_count_delta: int = 0,
+    intensity_adjustment: str = "",
 ) -> dict:
     focus_key = _focus_key_from_value(focus)
     target_count = _exercise_count_for_level(fitness_level, exercise_count_delta)
+    candidate_limit = _candidate_pool_limit(target_count)
     target_muscles, movement_type = _focus_to_targets(focus_key)
     candidates = find_exercises(
         target_muscles=target_muscles,
@@ -966,12 +1130,14 @@ def _build_session_blueprint(
         excluded_conditions=excluded_conditions,
         recommended_for=_recommended_program_tags(equipment_access, excluded_conditions),
         focus_tags=[focus_key],
-        limit=target_count,
+        limit=candidate_limit,
     )
     filtered_candidates = [
         {
             "name": exercise["name"],
             "target_muscle": exercise.get("target_muscle", []),
+            "difficulty": exercise.get("difficulty", ""),
+            "training_goal_tags": exercise.get("training_goal_tags", []),
             "equipment": exercise.get("equipment", []),
             "notes": exercise.get("notes", ""),
         }
@@ -985,7 +1151,7 @@ def _build_session_blueprint(
             available_equipment=equipment_access,
             excluded_conditions=excluded_conditions,
             focus_tags=[focus_key],
-            limit=target_count * 3,
+            limit=candidate_limit,
         )
         seen_names = {candidate["name"] for candidate in filtered_candidates}
         for exercise in relaxed_candidates:
@@ -1000,6 +1166,8 @@ def _build_session_blueprint(
                 {
                     "name": exercise["name"],
                     "target_muscle": exercise.get("target_muscle", []),
+                    "difficulty": exercise.get("difficulty", ""),
+                    "training_goal_tags": exercise.get("training_goal_tags", []),
                     "equipment": exercise.get("equipment", []),
                     "notes": exercise.get("notes", ""),
                 }
@@ -1023,6 +1191,8 @@ def _build_session_blueprint(
             {
                 "name": exercise["name"],
                 "target_muscle": exercise["target_muscle"].split(", "),
+                "difficulty": fitness_level,
+                "training_goal_tags": [training_goal],
                 "equipment": exercise["equipment"].split(", "),
                 "notes": exercise["notes"],
             }
@@ -1037,6 +1207,7 @@ def _build_session_blueprint(
         "focus_key": focus_key,
         "duration_minutes": duration_minutes,
         "target_exercise_count": target_count,
+        "intensity_adjustment": intensity_adjustment,
         "candidate_exercises": filtered_candidates,
         "warmup_hint": _build_warmup(focus_key),
         "cooldown_hint": _build_cooldown(focus_key),
@@ -1086,6 +1257,7 @@ def _finalize_workout_session(
         fitness_level=fitness_level,
         training_goal=training_goal,
         target_count=int(blueprint.get("target_exercise_count") or _exercise_count_for_level(fitness_level)),
+        intensity_adjustment=str(blueprint.get("intensity_adjustment", "")),
     )
     return {
         # Keep the blueprint day fixed so the weekly schedule does not drift.
@@ -1113,6 +1285,7 @@ def _finalize_exercises(
     fitness_level: str,
     training_goal: str,
     target_count: int | None = None,
+    intensity_adjustment: str = "",
 ) -> list[dict]:
     target_count = target_count or _exercise_count_for_level(fitness_level)
     finalized: list[dict] = []
@@ -1141,9 +1314,12 @@ def _finalize_exercises(
                 "name": matched["name"],
                 "target_muscle": ", ".join(matched.get("target_muscle", [])),
                 "sets": _sets_for_level(fitness_level),
-                "reps": _rep_range_for_goal(training_goal, fitness_level),
+                "reps": _rep_range_for_goal(training_goal, fitness_level, intensity_adjustment),
                 "equipment": ", ".join(matched.get("equipment", [])),
-                "notes": str(payload.get("notes") or matched.get("notes", "")),
+                "notes": _apply_intensity_note(
+                    str(payload.get("notes") or matched.get("notes", "")),
+                    intensity_adjustment,
+                ),
             }
         )
 
@@ -1161,9 +1337,9 @@ def _finalize_exercises(
                 "name": matched["name"],
                 "target_muscle": ", ".join(matched.get("target_muscle", [])),
                 "sets": _sets_for_level(fitness_level),
-                "reps": _rep_range_for_goal(training_goal, fitness_level),
+                "reps": _rep_range_for_goal(training_goal, fitness_level, intensity_adjustment),
                 "equipment": ", ".join(matched.get("equipment", [])),
-                "notes": matched.get("notes", ""),
+                "notes": _apply_intensity_note(matched.get("notes", ""), intensity_adjustment),
             }
         )
     return finalized
@@ -1288,10 +1464,6 @@ def _focus_to_targets(focus: str) -> tuple[list[str], str | None]:
 
 def _recommended_program_tags(equipment_access: list[str], excluded_conditions: list[str]) -> list[str]:
     tags = []
-    if equipment_access == ["bodyweight"] or equipment_access == ["bodyweight", ""]:
-        tags.append("home_workout")
-    elif equipment_access:
-        tags.append("gym_program")
     if excluded_conditions:
         tags.append("low_impact_program")
     return tags
@@ -1331,14 +1503,37 @@ def _sets_for_level(fitness_level: str) -> int:
 
 
 def _exercise_count_for_level(fitness_level: str, delta: int = 0) -> int:
-    base_count = {"beginner": 3, "intermediate": 3, "advanced": 4}.get(fitness_level, 3)
-    return max(1, base_count + delta)
+    base_count = {"beginner": 2, "intermediate": 3, "advanced": 4}.get(fitness_level, 3)
+    return max(2, base_count + delta)
 
 
-def _rep_range_for_goal(training_goal: str, fitness_level: str = "") -> str:
+def _candidate_pool_limit(target_count: int) -> int:
+    return max(target_count * 3, 8)
+
+
+def _rep_range_for_goal(training_goal: str, fitness_level: str = "", intensity_adjustment: str = "") -> str:
     if fitness_level == "beginner":
+        if intensity_adjustment == "higher":
+            return "8-10"
+        if intensity_adjustment == "lower":
+            return "6-8"
         return "6-10"
+    if intensity_adjustment == "higher":
+        return "12-15"
+    if intensity_adjustment == "lower":
+        return "10-12"
     return "10-15"
+
+
+def _apply_intensity_note(base_note: str, intensity_adjustment: str) -> str:
+    note = base_note.strip()
+    if intensity_adjustment == "higher":
+        cue = "Higher intensity: use full range of motion, controlled tempo, and a brief pause while keeping clean form."
+    elif intensity_adjustment == "lower":
+        cue = "Lower intensity: use conservative load, controlled range of motion, and stop well before form breaks."
+    else:
+        return note
+    return f"{note} {cue}".strip()
 
 
 def _build_nutrition_targets(user_profile: dict, goals: dict, current_state: dict) -> dict[str, int | float]:

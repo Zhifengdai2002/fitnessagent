@@ -81,6 +81,7 @@ class ManualUserLog(TypedDict, total=False):
     calories_consumed: int
     steps: int
     notes: str
+    feeling_emoji: str
 
 
 class ActivityTelemetry(TypedDict, total=False):
@@ -102,6 +103,8 @@ class UserFeedback(TypedDict, total=False):
 
     date: str
     completed_workouts: list[str]
+    completed_actions: list[str]
+    feeling_emoji: str
     adherence_score: float
     fatigue_level: int
     pain_level: int
@@ -179,6 +182,17 @@ class FitnessPlan(TypedDict, total=False):
     coaching_focus: list[str]
 
 
+class DailyHistoryEntry(TypedDict, total=False):
+    """Saved daily record containing the final plan and user feedback."""
+
+    date: str
+    weight_kg: float
+    body_fat_pct: float
+    completed_actions: list[str]
+    completed_plan: WorkoutSession
+    feedback: dict
+
+
 class VideoResource(TypedDict, total=False):
     """Tutorial videos attached to exercises."""
 
@@ -248,6 +262,7 @@ class FitnessAgentState(TypedDict, total=False):
     state_history: list[UserStateSnapshot]
     feedback_history: list[UserFeedback]
     plan_history: list[FitnessPlan]
+    daily_history: list[DailyHistoryEntry]
 
     # Tool and retrieval outputs.
     youtube_resources: list[VideoResource]
@@ -278,6 +293,7 @@ def create_initial_state() -> FitnessAgentState:
         "state_history": [],
         "feedback_history": [],
         "plan_history": [],
+        "daily_history": [],
         "youtube_resources": [],
         "retrieved_knowledge": [],
         "evaluation_result": {},

@@ -61,22 +61,20 @@ def find_exercises(
     recommended_for: Iterable[str] | None = None,
     limit: int = 5,
 ) -> list[dict[str, Any]]:
-    """Filter exercises against user goals, equipment, and safety constraints."""
+    """Return safe focus matches, ranking level and goal as preferences."""
 
     target_muscle_set = _normalize_many(target_muscles)
     focus_tag_set = _normalize_many(focus_tags)
-    equipment_set = _normalize_many(available_equipment)
     excluded_condition_set = _normalize_many(excluded_conditions)
     recommended_for_set = _normalize_many(recommended_for)
     movement_type_normalized = _normalize(movement_type) if movement_type else None
     difficulty_normalized = _normalize(difficulty) if difficulty else None
     training_goal_normalized = _normalize(training_goal) if training_goal else None
 
-    matches: list[dict[str, Any]] = []
-    for exercise in load_exercise_db():
+    scored_matches: list[tuple[int, int, dict[str, Any]]] = []
+    for index, exercise in enumerate(load_exercise_db()):
         exercise_muscles = _normalize_many(exercise.get("target_muscle", []))
         exercise_focus_tags = _normalize_many(exercise.get("focus_tags", []))
-        exercise_equipment = _normalize_many(exercise.get("equipment", []))
         contraindications = _normalize_many(exercise.get("contraindications", []))
         recommendation_tags = _normalize_many(exercise.get("recommended_for", []))
         goal_tags = _normalize_many(exercise.get("training_goal_tags", []))
@@ -87,26 +85,58 @@ def find_exercises(
             continue
         if movement_type_normalized and _normalize(exercise.get("movement_type", "")) != movement_type_normalized:
             continue
-        if difficulty_normalized and _normalize(exercise.get("difficulty", "")) != difficulty_normalized:
-            continue
-        if training_goal_normalized and training_goal_normalized not in goal_tags:
-            continue
-        if recommended_for_set and not recommended_for_set.intersection(recommendation_tags):
-            continue
         if excluded_condition_set and excluded_condition_set.intersection(contraindications):
             continue
 
-        # Allow bodyweight movements by default. For other movements, require
-        # at least one equipment match when the caller provides an equipment list.
-        if equipment_set and "bodyweight" not in exercise_equipment:
-            if not equipment_set.intersection(exercise_equipment):
-                continue
+        score = _preference_score(
+            exercise_difficulty=_normalize(exercise.get("difficulty", "")),
+            requested_difficulty=difficulty_normalized,
+            goal_tags=goal_tags,
+            requested_goal=training_goal_normalized,
+            recommendation_tags=recommendation_tags,
+            requested_recommendations=recommended_for_set,
+        )
+        scored_matches.append((score, index, exercise))
 
-        matches.append(exercise)
-        if len(matches) >= limit:
-            break
+    scored_matches.sort(key=lambda item: (-item[0], item[1]))
+    return [exercise for _, _, exercise in scored_matches[:limit]]
 
-    return matches
+
+def _preference_score(
+    *,
+    exercise_difficulty: str,
+    requested_difficulty: str | None,
+    goal_tags: set[str],
+    requested_goal: str | None,
+    recommendation_tags: set[str],
+    requested_recommendations: set[str],
+) -> int:
+    score = 0
+    if requested_difficulty:
+        score += _difficulty_preference_score(requested_difficulty, exercise_difficulty)
+    if requested_goal and requested_goal in goal_tags:
+        score += 20
+    if requested_recommendations and requested_recommendations.intersection(recommendation_tags):
+        score += 5
+    return score
+
+
+def _difficulty_preference_score(requested: str, exercise: str) -> int:
+    if not exercise:
+        return 0
+    difficulty_rank = {"beginner": 0, "intermediate": 1, "advanced": 2}
+    requested_rank = difficulty_rank.get(requested)
+    exercise_rank = difficulty_rank.get(exercise)
+    if requested_rank is None or exercise_rank is None:
+        return 0
+    if requested_rank == exercise_rank:
+        return 30
+    distance = abs(requested_rank - exercise_rank)
+    if requested == "beginner":
+        return 8 if exercise == "intermediate" else -20
+    if requested == "advanced":
+        return 20 if exercise == "intermediate" else 5
+    return 15 if distance == 1 else -10
 
 
 def build_video_resources(exercise_names: Iterable[str]) -> list[dict[str, str]]:

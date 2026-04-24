@@ -59,6 +59,9 @@ Output JSON schema:
 Rules:
 - Use exercise names exactly as provided in candidates.
 - Use food names exactly as provided in candidates.
+- Treat candidate exercise focus as the primary match. Difficulty and training goal tags are preference signals, not hard requirements.
+- Equipment access is not a hard requirement; assume listed candidate exercises can be performed unless safety notes or user instructions say otherwise.
+- For level matching, prefer same-level exercises first. Beginners may use simple intermediate exercises with conservative notes, but should avoid advanced exercises unless explicitly requested. Intermediate users may use beginner/intermediate and occasional advanced challenge movements. Advanced users may use advanced/intermediate exercises, with beginner exercises mainly for recovery or lower-intensity days.
 - Preserve the session slots from `session_blueprints`. Do not rename a scheduled date.
 - The cycle always spans 7 calendar days. If a cycle starts on 2026-04-25, the next cycle starts on 2026-05-02 regardless of whether the user trains 3, 4, or 5 times.
 - Some `session_blueprints` may be ad hoc same-day sessions outside the formal cycle. Keep them on their given `scheduled_date` and do not use them to rewrite the cycle boundaries.
@@ -68,16 +71,20 @@ Rules:
 - For every normal workout, use exactly 4 sets per exercise.
 - Do not use exertion labels or rest-second prescriptions.
 - Normal workouts default to `duration_minutes: 60`.
-- Use exactly 3 different exercises for beginner, 3 for intermediate, and 4 for advanced.
+- At baseline intensity, use exactly 2 different exercises for beginner, 3 for intermediate, and 4 for advanced.
 - Beginner exercise reps must be 6-10. Intermediate and advanced exercise reps must be 10-15.
-- If the user asks for lower/easier/lighter/shorter intensity in `plan_change_request` or latest feedback, remove exactly one exercise from the level baseline.
-- If the user asks for higher/harder/more intensity in `plan_change_request` or latest feedback, add exactly one exercise to the level baseline.
-- If the latest free-text feedback sounds not good, tired, under-recovered, discouraged, or low-energy, reduce volume by one exercise.
-- If the latest free-text feedback sounds strong, energetic, recovered, too easy, or ready for more, increase volume by one exercise.
-- If the latest free-text feedback is neutral, keep the baseline volume.
+- If `normalized_change_request.intensity_adjustment` is "higher" or the user clearly wants more challenge, add exactly one exercise to the level baseline, use the high end of the rep range, and add notes for controlled challenge.
+- If `normalized_change_request.intensity_adjustment` is "lower" or the user feels tired/uncomfortable without injury, keep beginner at 2 exercises, reduce intermediate from 3 to 2 exercises, reduce advanced from 4 to 3 exercises, use the low end of the rep range, and add conservative notes.
+- Exercise count must never be below 2.
+- Higher beginner reps should be 8-10; lower beginner reps should be 6-8.
+- Higher intermediate/advanced reps should be 12-15; lower intermediate/advanced reps should be 10-12.
 - Treat current weight and current body fat as record-only values. Do not change workout volume, exercise selection, or nutrition targets because of same-day weight/body-fat check-ins.
 - When the user requests a change for today or tomorrow, update only that target date's session.
 - Do not rebalance, swap, or rewrite other dates in the current training cycle for a same-day or next-day request.
+- Exception for same-cycle duplicates: if a temporary add repeats a focus already planned later in the same cycle, make the later duplicate a recovery/rest day.
+- Exception for replacements: if today's replacement repeats a focus already planned later in the same cycle, swap today's original content onto that later date.
+- If today's workout is cancelled for pain, injury, or a direct cancellation request, do not change any other date.
+- If a temporary add does not duplicate an existing same-cycle focus, add it without changing other dates.
 - Trust `normalized_change_request.focus_category` when it is present and non-empty. It already represents the standardized workout category the user asked for.
 - The only allowed focus families are:
   1. Upper Body (Chest + Arms)
@@ -89,6 +96,6 @@ Rules:
   7. Functional (Conditioning)
 - Treat meal dislikes or substitutions mentioned inside `plan_change_request` as temporary for the current day unless the user explicitly says they are permanent.
 - Do not convert a temporary same-day food request into a permanent allergy or long-term dislike.
-- Keep workout volume appropriate for the stated level and feedback.
+- Keep workout volume fixed to the stated level's exercise count.
 - If the user reports pain or low recovery, explicitly reduce load and mention safety.
 - If `plan_change_request` asks for an easier, shorter, or different day plan, reflect that immediately in today's session.

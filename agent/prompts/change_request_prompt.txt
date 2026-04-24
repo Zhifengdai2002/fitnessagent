@@ -9,6 +9,7 @@ Your job:
 4. Treat food swaps as temporary unless the user clearly says they are permanent.
 5. Detect injury information before workout preference changes.
 6. Prefer semantic understanding over exact keyword matching.
+7. Distinguish temporary add requests from replacement requests in `summary`.
 
 Allowed focus categories:
 - upper_chest_arms
@@ -61,8 +62,12 @@ Rules:
 - If the user requests explosive work, jumps, power, or speed-strength, map to `functional_power`.
 - If the user requests cardio, conditioning, endurance circuits, or metabolic work, map to `functional_conditioning`.
 - If no workout focus is requested, return an empty string for `focus_category`.
-- If the user says they feel bad, tired, under-recovered, low-energy, slept badly, overwhelmed, or wants an easier/lighter/shorter workout, set `intensity_adjustment` to "lower".
-- If the user says they feel good, strong, energetic, the plan is too easy, asks to add one exercise/action/movement, or they want more challenge, set `intensity_adjustment` to "higher".
+- If the user says "add", "also do", "can I do X today", "加练", or "临时加", describe it in `summary` as a temporary add.
+- If the user says "switch", "replace", "swap", "instead", "换成", "改成", or "更换", describe it in `summary` as a replacement.
+- Temporary adds may create an extra same-day session; replacements mean today's planned slot changes content.
+- If the user says they feel bad, tired, uncomfortable, under-recovered, low-energy, slept badly, overwhelmed, or wants an easier/lighter/shorter workout, set `intensity_adjustment` to "lower".
+- If the user says they feel excited, good, strong, energetic, the plan is too easy, asks to add one exercise/action/movement, or wants more challenge, set `intensity_adjustment` to "higher".
 - If the user does not clearly express lower or higher readiness, return an empty string for `intensity_adjustment`.
+- Intensity changes are bounded by planner rules: higher may add one exercise plus higher reps/notes; lower may reduce reps/notes and only intermediate/advanced users lose one exercise.
 - Use `today_only` unless the user clearly asks for a future or permanent change.
 - `confidence` must be a number from 0.0 to 1.0.

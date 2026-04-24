@@ -75,6 +75,37 @@ def call_model_json(
     return parsed
 
 
+def call_model_text(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    history: list[dict[str, str]] | None = None,
+    temperature: float = 0.4,
+    max_tokens: int = 900,
+) -> str:
+    """Call the configured OpenAI-compatible chat model and return plain text."""
+
+    settings = load_settings()
+    client = get_model_client()
+    messages = [
+        {"role": "system", "content": system_prompt},
+        *(history or [])[-10:],
+        {"role": "user", "content": user_prompt},
+    ]
+    response = client.chat.completions.create(
+        model=settings.model_name,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        extra_body={
+            "thinking": {
+                "type": "disabled",
+            }
+        },
+    )
+    return _coerce_message_content(response.choices[0].message.content).strip()
+
+
 def _coerce_message_content(content: Any) -> str:
     if isinstance(content, str):
         return content
