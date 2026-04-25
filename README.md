@@ -8,7 +8,6 @@ FitnessAgent is a Streamlit fitness coaching app backed by a LangGraph workflow 
 - Cycle-based training plans with a visible Today's Plan and Training Cycle.
 - AI Coach floating chat box for plan questions and direct plan edits.
 - AI Coach can adjust today's workout intensity, cancel today's workout, replace same-type exercises, update nutrition items, and preserve previous edits as the next baseline.
-- Hard training rules are enforced for safety.
 - Personlized plan for higher or lower intensity
 - Daily Feedback records the final Today's Plan, completion status, current weight, body fat, feeling note, and emoji.
 - History groups daily records by cycle.
