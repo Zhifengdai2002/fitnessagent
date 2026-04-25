@@ -42,6 +42,18 @@ FEELING_EMOJI_LABELS = {
     "😐": "Okay",
     "😫": "Hard",
 }
+APP_STATE_PATH = Path(__file__).resolve().parent / "data" / "app_state.json"
+PERSISTED_SESSION_KEYS = [
+    "profile_inputs",
+    "agent_result",
+    "active_date",
+    "completed_training_days",
+    "week_history",
+    "daily_history",
+    "assistant_chat_messages",
+    "last_feedback_summary",
+    "last_action_message",
+]
 
 
 def main() -> None:
@@ -49,6 +61,7 @@ def main() -> None:
 
     st.set_page_config(page_title="FitnessAgent", layout="wide")
     _initialize_session_state()
+    _load_persisted_session_state()
     _apply_pending_date_picker()
 
     _apply_light_theme()
@@ -83,9 +96,64 @@ def _initialize_session_state() -> None:
         "assistant_chat_messages": [],
         "assistant_chat_open": False,
         "last_action_message": "",
+        "persisted_state_loaded": False,
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
+
+
+def _load_persisted_session_state() -> None:
+    if st.session_state.get("persisted_state_loaded"):
+        return
+    st.session_state["persisted_state_loaded"] = True
+    if not APP_STATE_PATH.exists():
+        return
+    try:
+        payload = json.loads(APP_STATE_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+
+    for key in PERSISTED_SESSION_KEYS:
+        if key in payload:
+            st.session_state[key] = payload[key]
+
+    active_date = _safe_iso_date(
+        payload.get("active_date")
+        or payload.get("agent_result", {}).get("current_date")
+        or date.today().isoformat()
+    )
+    st.session_state["active_date"] = active_date
+    st.session_state["homepage_date_picker"] = _iso_to_date(active_date)
+    agent_result = st.session_state.get("agent_result") or {}
+    if agent_result:
+        st.session_state["daily_history"] = agent_result.get("daily_history", st.session_state.get("daily_history", []))
+
+
+def _save_persisted_session_state() -> None:
+    payload = {
+        key: _json_safe(st.session_state.get(key))
+        for key in PERSISTED_SESSION_KEYS
+    }
+    payload["active_date"] = _safe_iso_date(payload.get("active_date")) or date.today().isoformat()
+    try:
+        APP_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        APP_STATE_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError:
+        return
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, tuple):
+        return [_json_safe(item) for item in value]
+    return value
 
 
 def _apply_pending_date_picker() -> None:
@@ -283,12 +351,9 @@ def _render_sidebar(settings) -> None:
 
             submitted = st.form_submit_button("Run FitnessAgent", type="primary")
 
-        with st.expander("System", expanded=False):
-            st.write("Project root:", Path(__file__).resolve().parent)
-            st.write("Model:", settings.model_name)
-            st.write("Model base URL:", settings.model_base_url)
-            st.write("Model API key loaded:", settings.has_model_api_key)
-            st.write("YouTube key loaded:", settings.has_youtube_key)
+        if st.button("Reset App", type="secondary"):
+            _reset_app_state()
+            st.rerun()
 
     if submitted:
         sorted_available_days = _sort_days(available_days)
@@ -327,11 +392,34 @@ def _render_sidebar(settings) -> None:
         _execute_agent(_build_initial_state(profile_inputs))
 
 
+def _reset_app_state() -> None:
+    try:
+        APP_STATE_PATH.unlink(missing_ok=True)
+    except OSError:
+        pass
+    for key in PERSISTED_SESSION_KEYS:
+        st.session_state.pop(key, None)
+    st.session_state["profile_inputs"] = None
+    st.session_state["agent_result"] = None
+    st.session_state["active_date"] = date.today().isoformat()
+    st.session_state["homepage_date_picker"] = date.today()
+    st.session_state["pending_homepage_date_picker"] = None
+    st.session_state["completed_training_days"] = []
+    st.session_state["week_history"] = []
+    st.session_state["daily_history"] = []
+    st.session_state["assistant_chat_messages"] = []
+    st.session_state["assistant_chat_open"] = False
+    st.session_state["last_feedback_summary"] = ""
+    st.session_state["last_action_message"] = ""
+    st.session_state["persisted_state_loaded"] = True
+
+
 def _render_floating_chat_assistant(settings) -> None:
     if not st.session_state.get("assistant_chat_open", False):
         with st.container(key="floating_chat_launcher", border=False):
             if st.button("🤖", key="assistant_chat_open_button", help="Open AI Coach"):
                 st.session_state["assistant_chat_open"] = True
+                _save_persisted_session_state()
                 st.rerun()
         return
 
@@ -340,6 +428,7 @@ def _render_floating_chat_assistant(settings) -> None:
         title_col.markdown("### AI Coach")
         if close_col.button("Minimize", key="assistant_chat_minimize"):
             st.session_state["assistant_chat_open"] = False
+            _save_persisted_session_state()
             st.rerun()
 
         if not settings.has_model_api_key:
@@ -368,6 +457,7 @@ def _render_floating_chat_assistant(settings) -> None:
 
         if clear_chat:
             st.session_state["assistant_chat_messages"] = []
+            _save_persisted_session_state()
             st.rerun()
 
         if send_message and user_message.strip():
@@ -375,6 +465,7 @@ def _render_floating_chat_assistant(settings) -> None:
             messages = st.session_state.setdefault("assistant_chat_messages", [])
             messages.append({"role": "user", "content": user_message.strip()})
             messages.append({"role": "assistant", "content": assistant_reply})
+            _save_persisted_session_state()
             st.rerun()
 
 
@@ -522,6 +613,7 @@ def _maybe_cancel_today_from_chat(
 
     _refresh_youtube_resources(updated_result)
     st.session_state["agent_result"] = updated_result
+    _save_persisted_session_state()
     if injury_reported:
         area_text = f" around {', '.join(injury_areas)}" if injury_areas else ""
         return f"Today's workout has been cancelled because you reported an injury{area_text}."
@@ -635,6 +727,7 @@ def _maybe_patch_today_intensity_from_chat(
     today_session["exercises"] = updated_exercises
     _refresh_youtube_resources(updated_result)
     st.session_state["agent_result"] = updated_result
+    _save_persisted_session_state()
 
     label = "lower" if intensity == "lower" else "higher"
     exercise_text = ", ".join(
@@ -701,6 +794,7 @@ def _execute_ai_plan_patch(
 
     patched_result = _merge_ai_patch_result(previous_result, result, normalized)
     st.session_state["agent_result"] = patched_result
+    _save_persisted_session_state()
 
 
 def _merge_ai_patch_result(
@@ -785,6 +879,7 @@ def _maybe_update_nutrition_from_chat(
 
     current_plan["meal_suggestions"] = updated_meals
     st.session_state["agent_result"] = updated_result
+    _save_persisted_session_state()
     replacement_text = ", ".join(f"{old} -> {new}" for old, new in replacements)
     return f"Today's nutrition was updated: {replacement_text}. Your workout plan was left unchanged."
 
@@ -915,6 +1010,7 @@ def _maybe_replace_today_exercise_from_chat(user_message: str, previous_result: 
         updated_today["exercises"] = updated_exercises
         _refresh_youtube_resources(updated_result)
         st.session_state["agent_result"] = updated_result
+        _save_persisted_session_state()
         replacement_text = ", ".join(f"{old} -> {new}" for old, new in replacements_made)
         return (
             "Today's plan is now updated with same-focus exercise alternatives: "
@@ -941,6 +1037,7 @@ def _maybe_replace_today_exercise_from_chat(user_message: str, previous_result: 
     updated_today["exercises"] = updated_exercises
     _refresh_youtube_resources(updated_result)
     st.session_state["agent_result"] = updated_result
+    _save_persisted_session_state()
 
     return (
         f"Today's plan is now updated: replaced {original_name} with "
@@ -1253,6 +1350,7 @@ def _render_agent_output(result: FitnessAgentState) -> None:
     if selected_date.isoformat() != current_reference_date:
         current_reference_date = selected_date.isoformat()
         st.session_state["active_date"] = current_reference_date
+        _save_persisted_session_state()
     st.caption(f"Viewing plan for {selected_date.isoformat()} ({selected_date.strftime('%A')})")
 
     today_container = st.container()
@@ -1493,6 +1591,7 @@ def _render_daily_feedback_section() -> None:
             workout_feeling=workout_feeling,
             feeling_emoji=feeling_emoji,
         )
+        _save_persisted_session_state()
         st.rerun()
 
     feedback_summary = st.session_state.get("last_feedback_summary", "")
@@ -2317,6 +2416,7 @@ def _execute_agent(state: FitnessAgentState) -> None:
         st.error(str(exc))
     else:
         st.session_state["agent_result"] = result
+        _save_persisted_session_state()
 
 
 def _render_nutrition_targets(targets: dict[str, Any]) -> None:
