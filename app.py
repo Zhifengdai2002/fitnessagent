@@ -55,7 +55,6 @@ def main() -> None:
     st.title("FitnessAgent")
 
     agent_output_container = st.container()
-    feedback_container = st.container()
 
     _render_sidebar(settings)
 
@@ -66,8 +65,6 @@ def main() -> None:
         else:
             st.info("Fill in the User Profile in the sidebar and click `Run FitnessAgent` to create your first plan.")
 
-    with feedback_container:
-        _render_daily_feedback_section()
     _render_floating_chat_assistant(settings)
 
 
@@ -273,7 +270,6 @@ def _render_sidebar(settings) -> None:
                 ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
                 default=["Monday", "Wednesday", "Saturday"],
             )
-            injuries_text = st.text_input("Injuries or Pain-Sensitive Areas", value="")
             allergies_text = st.text_input("Food Allergies", value="")
             dietary_preferences = st.multiselect(
                 "Diet Preferences",
@@ -282,7 +278,7 @@ def _render_sidebar(settings) -> None:
             )
             profile_notes = st.text_area(
                 "Notes",
-                placeholder="Anything else I should know? Example: I prefer short morning workouts, I get bored easily, my left knee is sensitive, I want home-based training.",
+                placeholder="Anything else I should know? Example: I prefer short morning workouts, I get bored easily, I want home-based training.",
             )
 
             submitted = st.form_submit_button("Run FitnessAgent", type="primary")
@@ -322,7 +318,7 @@ def _render_sidebar(settings) -> None:
             "minutes_per_session": 60,
             "available_days": sorted_available_days,
             "equipment_access": _default_equipment_access(),
-            "injuries_text": injuries_text,
+            "injuries_text": "",
             "allergies_text": allergies_text,
             "dietary_preferences": dietary_preferences,
             "profile_notes": profile_notes,
@@ -1260,16 +1256,14 @@ def _render_agent_output(result: FitnessAgentState) -> None:
     st.caption(f"Viewing plan for {selected_date.isoformat()} ({selected_date.strftime('%A')})")
 
     today_container = st.container()
-    weekly_container = st.container()
+    cycle_feedback_container = st.container()
     notes_container = st.container()
     history_container = st.container()
 
     with today_container:
         st.caption(result.get("coaching_message", ""))
-        if result.get("needs_revision"):
-            st.warning("The agent thinks this plan still needs some adjustment based on the latest context.")
         action_message = st.session_state.get("last_action_message", "")
-        if action_message:
+        if action_message and not action_message.startswith("Today's plan and feedback were saved."):
             st.success(action_message)
 
         st.subheader("Today's Plan")
@@ -1315,27 +1309,31 @@ def _render_agent_output(result: FitnessAgentState) -> None:
             for resource in session_videos:
                 st.markdown(f"- [{resource.get('exercise_name', '')}]({resource.get('url', '')})")
 
-    with weekly_container:
-        st.subheader("Training Cycle")
-        cycle_number = current_plan.get("cycle_number", 1)
-        cycle_start_date = current_plan.get("cycle_start_date", "")
-        cycle_end_date = current_plan.get("cycle_end_date", "")
-        st.caption(f"第 {cycle_number} 周期 · {cycle_start_date} to {cycle_end_date}")
-        st.write(current_plan.get("summary", ""))
-        cycle_sessions = [
-            session
-            for session in _sort_workout_sessions(current_plan.get("workout_sessions", []))
-            if not session.get("is_ad_hoc")
-        ]
-        for session in cycle_sessions:
-            session_label = _session_display_label(session)
-            with st.expander(session_label, expanded=False):
-                st.write(f"Training time: {int(session.get('duration_minutes', 60))} minutes")
-                for exercise in session.get("exercises", []):
-                    st.markdown(
-                        f"- **{exercise.get('name', '')}**: "
-                        f"{exercise.get('sets', '')} x {exercise.get('reps', '')}"
-                    )
+    with cycle_feedback_container:
+        cycle_col, feedback_col = st.columns([1.15, 0.85], gap="large")
+        with cycle_col:
+            st.subheader("Training Cycle")
+            cycle_number = current_plan.get("cycle_number", 1)
+            cycle_start_date = current_plan.get("cycle_start_date", "")
+            cycle_end_date = current_plan.get("cycle_end_date", "")
+            st.caption(f"第 {cycle_number} 周期 · {cycle_start_date} to {cycle_end_date}")
+            st.write(current_plan.get("summary", ""))
+            cycle_sessions = [
+                session
+                for session in _sort_workout_sessions(current_plan.get("workout_sessions", []))
+                if not session.get("is_ad_hoc")
+            ]
+            for session in cycle_sessions:
+                session_label = _session_display_label(session)
+                with st.expander(session_label, expanded=False):
+                    st.write(f"Training time: {int(session.get('duration_minutes', 60))} minutes")
+                    for exercise in session.get("exercises", []):
+                        st.markdown(
+                            f"- **{exercise.get('name', '')}**: "
+                            f"{exercise.get('sets', '')} x {exercise.get('reps', '')}"
+                        )
+        with feedback_col:
+            _render_daily_feedback_section()
 
     with notes_container:
         st.subheader("Coach Notes")
@@ -1461,16 +1459,12 @@ def _render_daily_feedback_section() -> None:
             st.session_state["active_date"] = target_date
             st.session_state["pending_homepage_date_picker"] = target_date
             st.session_state["completed_training_days"] = []
-            st.session_state["last_action_message"] = (
-                "Today's plan and feedback were saved. A new cycle plan is now shown as Today's Plan."
-            )
+            st.session_state["last_action_message"] = ""
         else:
             st.session_state["active_date"] = target_date
             st.session_state["pending_homepage_date_picker"] = target_date
             st.session_state["completed_training_days"] = sorted(completed_training_days)
-            st.session_state["last_action_message"] = (
-                "Today's plan and feedback were saved. Tomorrow's cycle plan is now shown as Today's Plan."
-            )
+            st.session_state["last_action_message"] = ""
 
         updated_result = _record_daily_feedback_and_advance(
             previous_result=result,
