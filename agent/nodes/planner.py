@@ -541,8 +541,7 @@ def _build_hard_stop_context(state: FitnessAgentState) -> dict:
         if part
     ).lower()
     injury_reported = bool(
-        normalized_change_request.get("cancel_today")
-        or normalized_change_request.get("injury_reported")
+        normalized_change_request.get("injury_reported")
         or _contains_injury_language(notes_blob)
     )
     sleep_hard_stop = sleep_hours < 5.0
@@ -1138,6 +1137,8 @@ def _build_session_blueprint(
             "target_muscle": exercise.get("target_muscle", []),
             "difficulty": exercise.get("difficulty", ""),
             "training_goal_tags": exercise.get("training_goal_tags", []),
+            "movement_pattern": exercise.get("movement_pattern", ""),
+            "replacement_group": exercise.get("replacement_group", ""),
             "equipment": exercise.get("equipment", []),
             "notes": exercise.get("notes", ""),
         }
@@ -1168,6 +1169,8 @@ def _build_session_blueprint(
                     "target_muscle": exercise.get("target_muscle", []),
                     "difficulty": exercise.get("difficulty", ""),
                     "training_goal_tags": exercise.get("training_goal_tags", []),
+                    "movement_pattern": exercise.get("movement_pattern", ""),
+                    "replacement_group": exercise.get("replacement_group", ""),
                     "equipment": exercise.get("equipment", []),
                     "notes": exercise.get("notes", ""),
                 }
@@ -1193,6 +1196,8 @@ def _build_session_blueprint(
                 "target_muscle": exercise["target_muscle"].split(", "),
                 "difficulty": fitness_level,
                 "training_goal_tags": [training_goal],
+                "movement_pattern": "",
+                "replacement_group": "",
                 "equipment": exercise["equipment"].split(", "),
                 "notes": exercise["notes"],
             }

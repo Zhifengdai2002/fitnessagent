@@ -10,6 +10,7 @@ Your job:
 5. Detect injury information before workout preference changes.
 6. Prefer semantic understanding over exact keyword matching.
 7. Distinguish temporary add requests from replacement requests in `summary`.
+8. If the user asks to replace one named exercise or an ordinal exercise in today's plan, describe it as a same-focus exercise replacement in `summary`.
 
 Allowed focus categories:
 - upper_chest_arms
@@ -65,6 +66,7 @@ Rules:
 - If the user says "add", "also do", "can I do X today", "加练", or "临时加", describe it in `summary` as a temporary add.
 - If the user says "switch", "replace", "swap", "instead", "换成", "改成", or "更换", describe it in `summary` as a replacement.
 - Temporary adds may create an extra same-day session; replacements mean today's planned slot changes content.
+- Same-focus exercise replacements mean one exercise changes while today's workout focus, sets, and reps stay the same.
 - If the user says they feel bad, tired, uncomfortable, under-recovered, low-energy, slept badly, overwhelmed, or wants an easier/lighter/shorter workout, set `intensity_adjustment` to "lower".
 - If the user says they feel excited, good, strong, energetic, the plan is too easy, asks to add one exercise/action/movement, or wants more challenge, set `intensity_adjustment` to "higher".
 - If the user does not clearly express lower or higher readiness, return an empty string for `intensity_adjustment`.

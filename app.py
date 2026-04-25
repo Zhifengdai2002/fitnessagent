@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -13,6 +14,13 @@ from agent.config import load_settings
 from agent.graph import run_agent
 from agent.llm import call_model_json, call_model_text, load_prompt
 from agent.state import FitnessAgentState
+from agent.tools import (
+    build_video_resources,
+    calculate_food_macros,
+    find_foods,
+    get_food_by_name,
+    search_similar_exercises,
+)
 
 WEEKDAY_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 WEEKDAY_INDEX = {day: index for index, day in enumerate(WEEKDAY_ORDER)}
@@ -38,9 +46,11 @@ FEELING_EMOJI_LABELS = {
 
 def main() -> None:
     settings = load_settings()
-    _initialize_session_state()
 
     st.set_page_config(page_title="FitnessAgent", layout="wide")
+    _initialize_session_state()
+    _apply_pending_date_picker()
+
     _apply_light_theme()
     st.title("FitnessAgent")
 
@@ -49,15 +59,15 @@ def main() -> None:
 
     _render_sidebar(settings)
 
-    with feedback_container:
-        _render_daily_feedback_section()
-
     result = st.session_state.get("agent_result")
     with agent_output_container:
         if result:
             _render_agent_output(result)
         else:
             st.info("Fill in the User Profile in the sidebar and click `Run FitnessAgent` to create your first plan.")
+
+    with feedback_container:
+        _render_daily_feedback_section()
     _render_floating_chat_assistant(settings)
 
 
@@ -69,6 +79,7 @@ def _initialize_session_state() -> None:
         "last_feedback_summary": "",
         "active_date": date.today().isoformat(),
         "homepage_date_picker": date.today(),
+        "pending_homepage_date_picker": None,
         "completed_training_days": [],
         "week_history": [],
         "daily_history": [],
@@ -78,6 +89,16 @@ def _initialize_session_state() -> None:
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
+
+
+def _apply_pending_date_picker() -> None:
+    pending_date = st.session_state.get("pending_homepage_date_picker")
+    if not pending_date:
+        return
+    parsed_date = _iso_to_date(str(pending_date))
+    st.session_state["homepage_date_picker"] = parsed_date
+    st.session_state["active_date"] = parsed_date.isoformat()
+    st.session_state["pending_homepage_date_picker"] = None
 
 
 def _apply_light_theme() -> None:
@@ -385,6 +406,8 @@ def _call_chat_assistant(user_message: str) -> str:
         "or other red flags, advise stopping training and consulting a qualified professional. "
         "If the app context says today's plan was updated, say that it has been updated and "
         "summarize the current Today's Plan instead of only giving generic advice. "
+        "You can also replace a named exercise or an ordinal exercise such as 'the first exercise' "
+        "with a same-type alternative while preserving the day's focus, sets, and reps. "
         "When updating today's plan, follow the cycle-conflict policy: temporary add plus "
         "same-focus duplicate later in the same cycle turns that later duplicate into rest; "
         "replacement plus same-focus duplicate swaps the two days' contents; cancellation only "
@@ -414,10 +437,31 @@ def _maybe_update_today_from_chat(user_message: str) -> str:
     if not profile_inputs or not previous_result:
         return ""
 
+    replacement_summary = _maybe_replace_today_exercise_from_chat(user_message, previous_result)
+    if replacement_summary:
+        st.session_state["last_action_message"] = "Today's plan was updated by AI Coach."
+        return replacement_summary
+
     normalized = _normalize_change_request(user_message)
+    normalized = _augment_chat_safety_change(user_message, normalized)
     normalized = _augment_chat_intensity_change(user_message, normalized)
     if not _chat_request_should_update_today(user_message, normalized):
         return ""
+
+    cancel_summary = _maybe_cancel_today_from_chat(normalized, previous_result)
+    if cancel_summary:
+        st.session_state["last_action_message"] = "Today's workout was cancelled by AI Coach."
+        return cancel_summary
+
+    intensity_summary = _maybe_patch_today_intensity_from_chat(normalized, previous_result)
+    if intensity_summary:
+        st.session_state["last_action_message"] = "Today's plan was updated by AI Coach."
+        return intensity_summary
+
+    nutrition_summary = _maybe_update_nutrition_from_chat(normalized, previous_result)
+    if nutrition_summary:
+        st.session_state["last_action_message"] = "Today's nutrition was updated by AI Coach."
+        return nutrition_summary
 
     updated_state = _build_change_request_state(
         profile_inputs=profile_inputs,
@@ -425,14 +469,581 @@ def _maybe_update_today_from_chat(user_message: str) -> str:
         change_request=user_message,
         normalized_change_request=normalized,
     )
-    _execute_agent(updated_state)
+    _execute_ai_plan_patch(updated_state, previous_result, normalized)
     updated_result = st.session_state.get("agent_result", previous_result)
     today_session = _select_today_session(
         _sort_workout_sessions(updated_result.get("current_plan", {}).get("workout_sessions", [])),
-        _display_reference_date(st.session_state.get("active_date", updated_result.get("current_date", date.today().isoformat()))),
+        _current_interaction_date(updated_result),
     )
     st.session_state["last_action_message"] = "Today's plan was updated by AI Coach."
     return _summarize_session_for_chat(today_session)
+
+
+def _maybe_cancel_today_from_chat(
+    normalized: dict[str, Any],
+    previous_result: FitnessAgentState | dict[str, Any],
+) -> str:
+    if not normalized.get("cancel_today"):
+        return ""
+
+    injury_reported = bool(normalized.get("injury_reported"))
+    injury_areas = _coerce_string_list(normalized.get("injury_areas"), [])
+    current_date = _current_interaction_date(previous_result)
+    updated_result = deepcopy(previous_result)
+    sessions = updated_result.get("current_plan", {}).get("workout_sessions", [])
+    today_session = _select_today_session(_sort_workout_sessions(sessions), current_date)
+    if not today_session:
+        parsed_date = _iso_to_date(current_date)
+        sessions.insert(
+            0,
+            {
+                "day": parsed_date.strftime("%A"),
+                "scheduled_date": current_date,
+                "cycle_number": updated_result.get("current_plan", {}).get("cycle_number", 1),
+                "cycle_session_index": 0,
+                "is_ad_hoc": True,
+                "is_cancelled": True,
+                "focus": "Workout Cancelled",
+                "duration_minutes": 0,
+                "warmup": [],
+                "exercises": [],
+                "cooldown": [],
+                "safety_notes": _cancel_safety_notes(injury_reported=injury_reported, injury_areas=injury_areas),
+                "injury_reported": injury_reported,
+                "injury_areas": injury_areas,
+            },
+        )
+    else:
+        today_session["is_cancelled"] = True
+        today_session["focus"] = "Workout Cancelled"
+        today_session["duration_minutes"] = 0
+        today_session["warmup"] = []
+        today_session["exercises"] = []
+        today_session["cooldown"] = []
+        today_session["safety_notes"] = _cancel_safety_notes(injury_reported=injury_reported, injury_areas=injury_areas)
+        today_session["injury_reported"] = injury_reported
+        today_session["injury_areas"] = injury_areas
+
+    _refresh_youtube_resources(updated_result)
+    st.session_state["agent_result"] = updated_result
+    if injury_reported:
+        area_text = f" around {', '.join(injury_areas)}" if injury_areas else ""
+        return f"Today's workout has been cancelled because you reported an injury{area_text}."
+    return "Today's workout has been cancelled as requested. No injury reason was recorded."
+
+
+def _cancel_safety_notes(*, injury_reported: bool, injury_areas: list[str]) -> list[str]:
+    if injury_reported:
+        area_text = f" around {', '.join(injury_areas)}" if injury_areas else ""
+        return [
+            f"Today's workout was cancelled because an injury was reported{area_text}.",
+            "Do not train through injury symptoms; consider medical guidance before resuming.",
+        ]
+    return ["Today's workout was cancelled at your request."]
+
+
+def _augment_chat_safety_change(user_message: str, normalized: dict[str, Any]) -> dict[str, Any]:
+    if normalized.get("injury_reported") or normalized.get("cancel_today"):
+        return normalized
+    injury_areas = _injury_areas_from_chat_text(user_message)
+    cancel_requested = _chat_text_requests_cancel(user_message)
+    if not injury_areas and not cancel_requested:
+        return normalized
+
+    augmented = dict(normalized)
+    augmented["request_type"] = "recovery_change" if injury_areas else "workout_change"
+    augmented["scope"] = "today_only"
+    augmented["cancel_today"] = True
+    augmented["injury_reported"] = bool(injury_areas)
+    augmented["injury_areas"] = injury_areas
+    summary = "User reported injury; cancel today's workout." if injury_areas else "User requested cancelling today's workout without an injury reason."
+    augmented["summary"] = " ".join(part for part in [str(augmented.get("summary", "")).strip(), summary] if part)
+    augmented["confidence"] = max(float(augmented.get("confidence") or 0.0), 0.85)
+    return augmented
+
+
+def _chat_text_requests_cancel(text: str) -> bool:
+    normalized = text.lower()
+    cancel_terms = [
+        "cancel today's plan",
+        "cancel today",
+        "cancel workout",
+        "skip today",
+        "no workout today",
+        "取消今天",
+        "取消训练",
+        "今天不练",
+    ]
+    return any(term in normalized for term in cancel_terms)
+
+
+def _injury_areas_from_chat_text(text: str) -> list[str]:
+    normalized = text.lower()
+    injury_terms = ["injured", "injury", "hurt", "pain", "strain", "sprain", "受伤", "疼", "痛"]
+    if not any(term in normalized for term in injury_terms):
+        return []
+    area_map = {
+        "back": ["back", "lower back", "背", "腰"],
+        "knee": ["knee", "knees", "膝盖"],
+        "shoulder": ["shoulder", "shoulders", "肩"],
+        "ankle": ["ankle", "ankles", "脚踝"],
+        "wrist": ["wrist", "wrists", "手腕"],
+        "elbow": ["elbow", "elbows", "肘"],
+        "hip": ["hip", "hips", "髋"],
+    }
+    areas = [
+        area
+        for area, aliases in area_map.items()
+        if any(alias in normalized for alias in aliases)
+    ]
+    return areas or ["reported injury area"]
+
+
+def _maybe_patch_today_intensity_from_chat(
+    normalized: dict[str, Any],
+    previous_result: FitnessAgentState | dict[str, Any],
+) -> str:
+    intensity = str(normalized.get("intensity_adjustment", "")).strip().lower()
+    if intensity not in {"higher", "lower"}:
+        return ""
+    if normalized.get("focus_category") or normalized.get("cancel_today") or normalized.get("injury_reported"):
+        return ""
+
+    current_date = _current_interaction_date(previous_result)
+    updated_result = deepcopy(previous_result)
+    today_session = _select_today_session(
+        _sort_workout_sessions(updated_result.get("current_plan", {}).get("workout_sessions", [])),
+        current_date,
+    )
+    if not today_session or today_session.get("is_cancelled") or not today_session.get("exercises"):
+        st.session_state["agent_result"] = updated_result
+        return "Today has no active workout to adjust, so the current plan was left unchanged."
+
+    if intensity == "lower":
+        today_session.pop("is_cancelled", None)
+        today_session["duration_minutes"] = int(today_session.get("duration_minutes") or 60)
+
+    if not today_session.get("exercises"):
+        return ""
+
+    fitness_level = str(previous_result.get("user_profile", {}).get("fitness_level", "intermediate")).strip().lower()
+    updated_exercises = _patch_exercises_for_intensity(
+        exercises=list(today_session.get("exercises", [])),
+        fitness_level=fitness_level,
+        intensity=intensity,
+        focus=_focus_tag_from_session(today_session),
+    )
+    if not updated_exercises:
+        return ""
+
+    today_session["exercises"] = updated_exercises
+    _refresh_youtube_resources(updated_result)
+    st.session_state["agent_result"] = updated_result
+
+    label = "lower" if intensity == "lower" else "higher"
+    exercise_text = ", ".join(
+        f"{exercise.get('name', '')} {exercise.get('sets', '')}x{exercise.get('reps', '')}".strip()
+        for exercise in updated_exercises
+    )
+    return f"Today's workout was adjusted to {label} intensity: {exercise_text}."
+
+
+def _patch_exercises_for_intensity(
+    *,
+    exercises: list[dict[str, Any]],
+    fitness_level: str,
+    intensity: str,
+    focus: str,
+) -> list[dict[str, Any]]:
+    patched = [dict(exercise) for exercise in exercises]
+    if intensity == "lower":
+        target_count = 2 if fitness_level in {"beginner", "intermediate"} else 3
+        reps = "6-8" if fitness_level == "beginner" else "10-12"
+        note = "Lower intensity: keep the load conservative, move with control, and stop well before form breaks."
+    else:
+        target_count = len(patched) + 1
+        reps = "8-10" if fitness_level == "beginner" else "12-15"
+        note = "Higher intensity: use controlled tempo, full range of motion, and a brief pause while keeping clean form."
+
+    if intensity == "lower":
+        patched = patched[: max(2, min(target_count, len(patched)))]
+    elif patched:
+        current_names = [
+            str(exercise.get("name", "")).strip()
+            for exercise in patched
+            if str(exercise.get("name", "")).strip()
+        ]
+        seed_name = current_names[0] if current_names else ""
+        additions = search_similar_exercises(
+            exercise_name=seed_name,
+            focus=focus,
+            level=fitness_level,
+            exclude=current_names,
+            limit=3,
+        ) if seed_name else []
+        if additions:
+            patched.append(_replacement_exercise_payload({"sets": 4, "reps": reps}, additions[0]))
+    for exercise in patched:
+        exercise["sets"] = 4
+        exercise["reps"] = reps
+        existing_note = str(exercise.get("notes", "")).strip()
+        if note not in existing_note:
+            exercise["notes"] = f"{existing_note} {note}".strip()
+    return patched
+
+
+def _execute_ai_plan_patch(
+    state: FitnessAgentState,
+    previous_result: FitnessAgentState | dict[str, Any],
+    normalized: dict[str, Any],
+) -> None:
+    try:
+        result = run_agent(state)
+    except Exception as exc:
+        st.error(str(exc))
+        return
+
+    patched_result = _merge_ai_patch_result(previous_result, result, normalized)
+    st.session_state["agent_result"] = patched_result
+
+
+def _merge_ai_patch_result(
+    previous_result: FitnessAgentState | dict[str, Any],
+    result: FitnessAgentState | dict[str, Any],
+    normalized: dict[str, Any],
+) -> FitnessAgentState:
+    patched_result: FitnessAgentState = dict(result)
+    previous_plan = deepcopy(previous_result.get("current_plan", {}))
+    result_plan = deepcopy(result.get("current_plan", {}))
+
+    request_type = str(normalized.get("request_type", "")).strip()
+    workout_changed = _normalized_request_has_workout_change(normalized)
+    nutrition_changed = bool(
+        normalized.get("temporary_food_avoidances")
+        or normalized.get("permanent_food_preferences")
+        or request_type == "nutrition_change"
+    )
+
+    if workout_changed and not nutrition_changed and previous_plan:
+        result_plan["nutrition_targets"] = deepcopy(previous_plan.get("nutrition_targets", result_plan.get("nutrition_targets", {})))
+        result_plan["meal_suggestions"] = deepcopy(previous_plan.get("meal_suggestions", result_plan.get("meal_suggestions", [])))
+    elif nutrition_changed and not workout_changed and previous_plan:
+        result_plan["workout_sessions"] = deepcopy(previous_plan.get("workout_sessions", result_plan.get("workout_sessions", [])))
+
+    if previous_plan:
+        for key in ["summary", "objective_alignment", "coaching_focus", "recovery_actions"]:
+            if key in previous_plan:
+                result_plan[key] = deepcopy(previous_plan[key])
+
+    patched_result["current_plan"] = result_plan
+    patched_result["plan_history"] = deepcopy(previous_result.get("plan_history", []))
+    patched_result["daily_history"] = deepcopy(previous_result.get("daily_history", []))
+    patched_result["feedback_history"] = deepcopy(previous_result.get("feedback_history", []))
+    patched_result["state_history"] = deepcopy(previous_result.get("state_history", []))
+    _refresh_youtube_resources(patched_result)
+    return patched_result
+
+
+def _maybe_update_nutrition_from_chat(
+    normalized: dict[str, Any],
+    previous_result: FitnessAgentState | dict[str, Any],
+) -> str:
+    avoidances = _coerce_string_list(normalized.get("temporary_food_avoidances"), [])
+    if not avoidances:
+        return ""
+    if _normalized_request_has_workout_change(normalized):
+        return ""
+
+    updated_result = deepcopy(previous_result)
+    current_plan = updated_result.get("current_plan", {})
+    meals = list(current_plan.get("meal_suggestions", []))
+    if not meals:
+        return ""
+
+    updated_meals: list[dict[str, Any]] = []
+    replacements: list[tuple[str, str]] = []
+    used_foods = {
+        str(meal.get("food_name", "")).strip()
+        for meal in meals
+        if str(meal.get("food_name", "")).strip()
+    }
+    for meal in meals:
+        food_name = str(meal.get("food_name", "")).strip()
+        if not _food_matches_any_avoidance(food_name, avoidances):
+            updated_meals.append(meal)
+            continue
+
+        replacement = _replacement_food_for_meal(
+            meal=meal,
+            avoidances=avoidances,
+            used_foods=used_foods,
+        )
+        if replacement:
+            replacement_name = str(replacement.get("food_name", "")).strip()
+            replacements.append((food_name, replacement_name))
+            used_foods.add(replacement_name)
+            updated_meals.append(replacement)
+
+    if not replacements:
+        return ""
+
+    current_plan["meal_suggestions"] = updated_meals
+    st.session_state["agent_result"] = updated_result
+    replacement_text = ", ".join(f"{old} -> {new}" for old, new in replacements)
+    return f"Today's nutrition was updated: {replacement_text}. Your workout plan was left unchanged."
+
+
+def _normalized_request_has_workout_change(normalized: dict[str, Any]) -> bool:
+    return bool(
+        normalized.get("focus_category")
+        or normalized.get("cancel_today")
+        or normalized.get("injury_reported")
+        or normalized.get("intensity_adjustment")
+        or str(normalized.get("request_type", "")) in {"workout_change", "mixed_change", "recovery_change"}
+    )
+
+
+def _food_matches_any_avoidance(food_name: str, avoidances: list[str]) -> bool:
+    normalized_name = _normalize_loose(food_name)
+    return any(_normalize_loose(avoidance) and _normalize_loose(avoidance) in normalized_name for avoidance in avoidances)
+
+
+def _replacement_food_for_meal(
+    *,
+    meal: dict[str, Any],
+    avoidances: list[str],
+    used_foods: set[str],
+) -> dict[str, Any] | None:
+    current_food = get_food_by_name(str(meal.get("food_name", "")))
+    if not current_food:
+        return None
+    category = str(current_food.get("category", ""))
+    candidates = find_foods(category=category, limit=8)
+    for candidate in candidates:
+        candidate_name = str(candidate.get("name", "")).strip()
+        if not candidate_name or candidate_name in used_foods:
+            continue
+        if _food_matches_any_avoidance(candidate_name, avoidances):
+            continue
+        grams = _extract_grams(str(meal.get("serving_size", "100g")), default=100.0)
+        macro = calculate_food_macros(str(candidate.get("id", "")), grams)
+        return {
+            "food_name": candidate_name,
+            "serving_size": f"{int(grams)}g",
+            "calories": int(round(macro["calories"])),
+            "protein_g": macro["protein_g"],
+            "carbs_g": macro["carbs_g"],
+            "fat_g": macro["fat_g"],
+            "meal_slot": str(meal.get("meal_slot", "meal")),
+        }
+    return None
+
+
+def _extract_grams(serving_size: str, default: float) -> float:
+    digits = "".join(char for char in serving_size if char.isdigit() or char == ".")
+    return float(digits) if digits else default
+
+
+def _maybe_replace_today_exercise_from_chat(user_message: str, previous_result: FitnessAgentState | dict[str, Any]) -> str:
+    text = user_message.lower()
+    replacement_terms = [
+        "replace",
+        "swap",
+        "change",
+        "alternative",
+        "instead",
+        "换",
+        "替换",
+        "不要",
+        "不想做",
+        "换掉",
+        "改掉",
+    ]
+    if not any(term in text for term in replacement_terms):
+        return ""
+
+    current_date = _current_interaction_date(previous_result)
+    current_plan = previous_result.get("current_plan", {})
+    today_session = _select_today_session(
+        _sort_workout_sessions(current_plan.get("workout_sessions", [])),
+        current_date,
+    )
+    if not today_session or today_session.get("is_cancelled"):
+        return ""
+
+    exercises = today_session.get("exercises", [])
+    target_index = _exercise_index_from_chat_message(user_message, exercises)
+    if target_index is None and not _chat_requests_general_exercise_replacement(user_message):
+        return ""
+
+    updated_result = deepcopy(previous_result)
+    updated_sessions = updated_result.get("current_plan", {}).get("workout_sessions", [])
+    updated_today = _select_today_session(_sort_workout_sessions(updated_sessions), current_date)
+    if not updated_today:
+        return ""
+
+    updated_exercises = list(updated_today.get("exercises", []))
+    current_names = [
+        str(exercise.get("name", "")).strip()
+        for exercise in updated_exercises
+        if str(exercise.get("name", "")).strip()
+    ]
+    focus_tag = _focus_tag_from_session(today_session)
+    level = str(previous_result.get("user_profile", {}).get("fitness_level", ""))
+
+    if target_index is None:
+        replacements_made = []
+        excluded_names = list(current_names)
+        for index, original_exercise in enumerate(updated_exercises):
+            original_name = str(original_exercise.get("name", "")).strip()
+            if not original_name:
+                continue
+            replacements = search_similar_exercises(
+                exercise_name=original_name,
+                focus=focus_tag,
+                level=level,
+                exclude=excluded_names,
+                limit=5,
+            )
+            if not replacements:
+                continue
+            replacement = replacements[0]
+            updated_exercises[index] = _replacement_exercise_payload(original_exercise, replacement)
+            replacement_name = str(replacement.get("name", "")).strip()
+            excluded_names.append(replacement_name)
+            replacements_made.append((original_name, replacement_name))
+
+        if not replacements_made:
+            return ""
+
+        updated_today["exercises"] = updated_exercises
+        _refresh_youtube_resources(updated_result)
+        st.session_state["agent_result"] = updated_result
+        replacement_text = ", ".join(f"{old} -> {new}" for old, new in replacements_made)
+        return (
+            "Today's plan is now updated with same-focus exercise alternatives: "
+            f"{replacement_text}. Sets and reps stayed the same."
+        )
+
+    original_exercise = updated_exercises[target_index]
+    original_name = str(original_exercise.get("name", "")).strip()
+    if not original_name:
+        return ""
+
+    replacements = search_similar_exercises(
+        exercise_name=original_name,
+        focus=focus_tag,
+        level=level,
+        exclude=current_names,
+        limit=5,
+    )
+    if not replacements:
+        return ""
+
+    replacement = replacements[0]
+    updated_exercises[target_index] = _replacement_exercise_payload(original_exercise, replacement)
+    updated_today["exercises"] = updated_exercises
+    _refresh_youtube_resources(updated_result)
+    st.session_state["agent_result"] = updated_result
+
+    return (
+        f"Today's plan is now updated: replaced {original_name} with "
+        f"{replacement.get('name', '')} while keeping the same focus, sets, and reps."
+    )
+
+
+def _chat_requests_general_exercise_replacement(user_message: str) -> bool:
+    text = user_message.lower()
+    exercise_terms = [
+        "exercise",
+        "exercises",
+        "action",
+        "actions",
+        "movement",
+        "movements",
+        "动作",
+    ]
+    general_terms = [
+        "some",
+        "all",
+        "another",
+        "alternative",
+        "alternatives",
+        "different",
+        "new",
+        "几个",
+        "一些",
+        "全部",
+        "换一换",
+        "换几个",
+        "换掉",
+    ]
+    return any(term in text for term in exercise_terms) and any(term in text for term in general_terms)
+
+
+def _replacement_exercise_payload(original_exercise: dict[str, Any], replacement: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "name": replacement.get("name", ""),
+        "target_muscle": ", ".join(replacement.get("target_muscle", [])),
+        "sets": original_exercise.get("sets", 4),
+        "reps": original_exercise.get("reps", ""),
+        "equipment": ", ".join(replacement.get("equipment", [])),
+        "notes": replacement.get("notes", ""),
+    }
+
+
+def _exercise_index_from_chat_message(user_message: str, exercises: list[dict[str, Any]]) -> int | None:
+    text = user_message.lower()
+    normalized_text = _normalize_loose(text)
+    for index, exercise in enumerate(exercises):
+        name = str(exercise.get("name", "")).strip()
+        if name and _normalize_loose(name) in normalized_text:
+            return index
+
+    ordinal_terms = [
+        (0, ["first exercise", "first movement", "1st exercise", "第一个动作", "第1个动作", "第一个", "第1个"]),
+        (1, ["second exercise", "second movement", "2nd exercise", "第二个动作", "第2个动作", "第二个", "第2个"]),
+        (2, ["third exercise", "third movement", "3rd exercise", "第三个动作", "第3个动作", "第三个", "第3个"]),
+        (3, ["fourth exercise", "fourth movement", "4th exercise", "第四个动作", "第4个动作", "第四个", "第4个"]),
+        (4, ["fifth exercise", "fifth movement", "5th exercise", "第五个动作", "第5个动作", "第五个", "第5个"]),
+    ]
+    for index, terms in ordinal_terms:
+        if index < len(exercises) and any(term in text for term in terms):
+            return index
+    return None
+
+
+def _focus_tag_from_session(session: dict[str, Any]) -> str:
+    focus = str(session.get("focus", "")).lower()
+    if "shoulder" in focus:
+        return "upper_shoulders"
+    if "back" in focus:
+        return "back_training"
+    if "lower" in focus or "legs" in focus or "glutes" in focus:
+        return "lower_legs_glutes"
+    if "core" in focus or "abs" in focus:
+        return "functional_core"
+    if "power" in focus:
+        return "functional_power"
+    if "conditioning" in focus:
+        return "functional_conditioning"
+    if "chest" in focus or "arms" in focus:
+        return "upper_chest_arms"
+    return ""
+
+
+def _refresh_youtube_resources(result: FitnessAgentState | dict[str, Any]) -> None:
+    exercise_names = [
+        str(exercise.get("name", "")).strip()
+        for session in result.get("current_plan", {}).get("workout_sessions", [])
+        for exercise in session.get("exercises", [])
+        if str(exercise.get("name", "")).strip()
+    ]
+    result["youtube_resources"] = build_video_resources(exercise_names)
+
+
+def _normalize_loose(value: str) -> str:
+    return "".join(character.lower() for character in value if character.isalnum())
 
 
 def _chat_request_should_update_today(user_message: str, normalized: dict[str, Any]) -> bool:
@@ -455,6 +1066,16 @@ def _chat_request_should_update_today(user_message: str, normalized: dict[str, A
         "easier",
         "lighter",
         "harder",
+        "injury",
+        "injured",
+        "hurt",
+        "pain",
+        "sleep",
+        "slept",
+        "didn't sleep",
+        "dont sleep",
+        "don't sleep",
+        "poor sleep",
         "let's",
         "练",
         "改",
@@ -471,6 +1092,8 @@ def _chat_request_should_update_today(user_message: str, normalized: dict[str, A
         or normalized.get("permanent_food_preferences")
     )
     request_type = str(normalized.get("request_type", ""))
+    if normalized.get("injury_reported") or normalized.get("cancel_today"):
+        return has_structured_change
     return has_update_language and has_structured_change and request_type in {
         "workout_change",
         "nutrition_change",
@@ -509,6 +1132,13 @@ def _chat_intensity_from_text(text: str) -> str:
         "not feeling good",
         "not good",
         "low energy",
+        "poor sleep",
+        "bad sleep",
+        "didn't sleep",
+        "dont sleep",
+        "don't sleep",
+        "slept badly",
+        "sleep badly",
         "exhausted",
         "fatigued",
         "make it easier",
@@ -563,9 +1193,7 @@ def _summarize_session_for_chat(session: dict[str, Any]) -> str:
 def _build_chat_context(result: FitnessAgentState | dict[str, Any]) -> str:
     if not result:
         return "No plan has been generated yet."
-    current_date = _display_reference_date(
-        st.session_state.get("active_date", result.get("current_date", date.today().isoformat()))
-    )
+    current_date = _current_interaction_date(result)
     current_plan = result.get("current_plan", {})
     today_session = _select_today_session(
         _sort_workout_sessions(current_plan.get("workout_sessions", [])),
@@ -625,9 +1253,7 @@ def _build_chat_context(result: FitnessAgentState | dict[str, Any]) -> str:
 def _render_agent_output(result: FitnessAgentState) -> None:
     current_plan = result.get("current_plan", {})
     evaluation_result = result.get("evaluation_result", {})
-    current_reference_date = _display_reference_date(
-        st.session_state.get("active_date", result.get("current_date", date.today().isoformat()))
-    )
+    current_reference_date = _current_interaction_date(result)
 
     selected_date = st.date_input("Plan Date", key="homepage_date_picker")
     if selected_date.isoformat() != current_reference_date:
@@ -728,6 +1354,12 @@ def _render_agent_output(result: FitnessAgentState) -> None:
     with history_container:
         st.subheader("History")
         daily_history = result.get("daily_history") or st.session_state.get("daily_history", [])
+        daily_history = _repair_daily_history_against_plan(daily_history, current_plan)
+        if daily_history != (result.get("daily_history") or []):
+            result["daily_history"] = daily_history
+            if st.session_state.get("agent_result"):
+                st.session_state["agent_result"]["daily_history"] = daily_history
+            st.session_state["daily_history"] = daily_history
         if not daily_history:
             st.write("No daily history yet.")
         for cycle_number, cycle_items in _group_daily_history_by_cycle(daily_history):
@@ -738,7 +1370,8 @@ def _render_agent_output(result: FitnessAgentState) -> None:
 
 def _render_daily_history_item(item: dict[str, Any]) -> None:
     actions = item.get("completed_actions", [])
-    action_text = ", ".join(actions) if actions else "No scheduled workout"
+    completed_plan = item.get("completed_plan", {})
+    action_text = _history_action_text(completed_plan, actions)
     feedback = item.get("feedback", {})
     metric_text = (
         f"{item.get('weight_kg', '-')} kg, "
@@ -748,9 +1381,89 @@ def _render_daily_history_item(item: dict[str, Any]) -> None:
         f"- **{item.get('date', '')}** {feedback.get('emoji', '')} "
         f"{metric_text} · {action_text}"
     )
+    injury_note = _history_injury_note(item)
+    if injury_note:
+        st.caption(injury_note)
     feeling = str(feedback.get("workout_feeling", "")).strip()
     if feeling:
         st.caption(feeling)
+
+
+def _repair_daily_history_against_plan(daily_history: list[dict[str, Any]], current_plan: dict[str, Any]) -> list[dict[str, Any]]:
+    sessions = _sort_workout_sessions(current_plan.get("workout_sessions", []))
+    if not daily_history or not sessions:
+        return list(daily_history or [])
+
+    repaired: list[dict[str, Any]] = []
+    changed = False
+    for item in daily_history:
+        item_copy = deepcopy(item)
+        item_date = _safe_iso_date(item_copy.get("date"))
+        completed_plan = item_copy.get("completed_plan", {})
+        completed_date = _safe_iso_date(completed_plan.get("scheduled_date")) if completed_plan else ""
+        plan_session = _select_today_session(sessions, item_date)
+        if _history_item_needs_plan_repair(item_copy, plan_session, completed_date, item_date):
+            item_copy["completed_plan"] = deepcopy(plan_session)
+            item_copy["completed_actions"] = _completed_actions_from_session(plan_session)
+            item_copy["cycle_number"] = _history_item_cycle_number({"completed_plan": plan_session})
+            feedback = dict(item_copy.get("feedback", {}))
+            feedback["injury_areas"] = _history_injury_areas(plan_session, {"pain_points": []})
+            item_copy["feedback"] = feedback
+            changed = True
+        repaired.append(item_copy)
+    return repaired if changed else list(daily_history)
+
+
+def _history_item_needs_plan_repair(
+    item: dict[str, Any],
+    plan_session: dict[str, Any],
+    completed_date: str,
+    item_date: str,
+) -> bool:
+    if not plan_session:
+        return False
+    completed_plan = item.get("completed_plan", {})
+    if not completed_plan:
+        return True
+    if completed_date != item_date:
+        return True
+    plan_is_cancelled = bool(plan_session.get("is_cancelled"))
+    completed_is_cancelled = bool(completed_plan.get("is_cancelled"))
+    if plan_is_cancelled != completed_is_cancelled:
+        return True
+    plan_actions = _completed_actions_from_session(plan_session)
+    completed_actions = [
+        str(action).strip()
+        for action in item.get("completed_actions", [])
+        if str(action).strip()
+    ]
+    if plan_actions and not completed_actions:
+        return True
+    if completed_actions and completed_actions != plan_actions:
+        return True
+    if plan_actions and completed_plan.get("exercises") != plan_session.get("exercises"):
+        return True
+    return False
+
+
+def _history_action_text(completed_plan: dict[str, Any], actions: list[str]) -> str:
+    if completed_plan.get("is_cancelled"):
+        return "Workout cancelled"
+    if actions:
+        return ", ".join(actions)
+    if completed_plan and completed_plan.get("scheduled_date"):
+        return "Workout recorded with no exercises"
+    return "No scheduled workout"
+
+
+def _history_injury_note(item: dict[str, Any]) -> str:
+    feedback = item.get("feedback", {})
+    injury_areas = _coerce_string_list(feedback.get("injury_areas"), [])
+    if not injury_areas:
+        injury_areas = _coerce_string_list(item.get("injury_areas"), [])
+    if injury_areas:
+        return f"Injury noted: {', '.join(injury_areas)}"
+    return ""
 
 
 def _group_daily_history_by_cycle(daily_history: list[dict[str, Any]]) -> list[tuple[int, list[dict[str, Any]]]]:
@@ -810,13 +1523,8 @@ def _render_daily_feedback_section() -> None:
             st.error("Please create your first plan from the User Profile first.")
             return
 
-        current_reference_date = _display_reference_date(
-            st.session_state.get("active_date", result.get("current_date", date.today().isoformat()))
-        )
-        current_session = _select_today_session(
-            _sort_workout_sessions(result.get("current_plan", {}).get("workout_sessions", [])),
-            current_reference_date,
-        )
+        current_reference_date = _current_interaction_date(result)
+        current_session = _session_for_history_date(result, current_reference_date, {})
 
         completed_training_days = set(st.session_state.get("completed_training_days", []))
         if current_session.get("scheduled_date") and not current_session.get("is_cancelled"):
@@ -840,14 +1548,14 @@ def _render_daily_feedback_section() -> None:
             )
             target_date = _next_calendar_date(current_reference_date)
             st.session_state["active_date"] = target_date
-            st.session_state["homepage_date_picker"] = _iso_to_date(target_date)
+            st.session_state["pending_homepage_date_picker"] = target_date
             st.session_state["completed_training_days"] = []
             st.session_state["last_action_message"] = (
                 "Today's plan and feedback were saved. This cycle is now marked complete."
             )
         else:
             st.session_state["active_date"] = target_date
-            st.session_state["homepage_date_picker"] = _iso_to_date(target_date)
+            st.session_state["pending_homepage_date_picker"] = target_date
             st.session_state["completed_training_days"] = sorted(completed_training_days)
             st.session_state["last_action_message"] = (
                 "Today's plan and feedback were saved. Tomorrow's cycle plan is now shown as Today's Plan."
@@ -869,6 +1577,7 @@ def _render_daily_feedback_section() -> None:
             workout_feeling=workout_feeling,
             feeling_emoji=feeling_emoji,
         )
+        st.rerun()
 
     feedback_summary = st.session_state.get("last_feedback_summary", "")
     if feedback_summary:
@@ -887,6 +1596,7 @@ def _record_daily_feedback_and_advance(
     feeling_emoji: str,
 ) -> FitnessAgentState:
     updated_result: FitnessAgentState = dict(previous_result)
+    current_session = _session_for_history_date(previous_result, feedback_date, current_session)
     completed_actions = _completed_actions_from_session(current_session)
     feedback_notes = workout_feeling.strip()
     latest_feedback = _build_daily_feedback(
@@ -922,6 +1632,7 @@ def _record_daily_feedback_and_advance(
             "workout_feeling": feedback_notes,
             "emoji": feeling_emoji,
             "emoji_label": FEELING_EMOJI_LABELS.get(feeling_emoji, ""),
+            "injury_areas": _history_injury_areas(current_session, latest_feedback),
         },
     }
 
@@ -944,6 +1655,58 @@ def _record_daily_feedback_and_advance(
         "date",
     )
     return updated_result
+
+
+def _session_for_history_date(
+    result: FitnessAgentState | dict[str, Any],
+    feedback_date: str,
+    current_session: dict[str, Any],
+) -> dict[str, Any]:
+    if current_session and _same_iso_date(current_session.get("scheduled_date"), feedback_date):
+        return current_session
+    sessions = _sort_workout_sessions(result.get("current_plan", {}).get("workout_sessions", []))
+    for session in sessions:
+        if _same_iso_date(session.get("scheduled_date"), feedback_date):
+            return session
+    return {}
+
+
+def _same_iso_date(left: object, right: object) -> bool:
+    left_date = _safe_iso_date(left)
+    right_date = _safe_iso_date(right)
+    return bool(left_date and right_date and left_date == right_date)
+
+
+def _safe_iso_date(value: object) -> str:
+    if value is None:
+        return ""
+    raw_value = str(value).strip()
+    try:
+        return datetime.fromisoformat(raw_value).date().isoformat()
+    except (TypeError, ValueError):
+        pass
+    compact_match = re.search(r"(\d{4})-(\d{1,2})-(\d{1,2})", raw_value)
+    if compact_match:
+        year, month, day = compact_match.groups()
+        return f"{int(year):04d}-{int(month):02d}-{int(day):02d}"
+    chinese_match = re.search(r"(\d{4})年(\d{1,2})月(\d{1,2})日", raw_value)
+    if chinese_match:
+        year, month, day = chinese_match.groups()
+        return f"{int(year):04d}-{int(month):02d}-{int(day):02d}"
+    slash_match = re.search(r"(\d{4})/(\d{1,2})/(\d{1,2})", raw_value)
+    if slash_match:
+        year, month, day = slash_match.groups()
+        return f"{int(year):04d}-{int(month):02d}-{int(day):02d}"
+    return raw_value
+
+
+def _history_injury_areas(current_session: dict[str, Any], latest_feedback: dict[str, Any]) -> list[str]:
+    session_areas = _coerce_string_list(current_session.get("injury_areas"), [])
+    if session_areas:
+        return session_areas
+    if current_session.get("injury_reported"):
+        return ["reported injury area"]
+    return list(latest_feedback.get("pain_points", []))
 
 
 def _build_daily_feedback(
@@ -1104,9 +1867,7 @@ def _build_change_request_state(
     change_request: str,
     normalized_change_request: dict[str, Any] | None = None,
 ) -> FitnessAgentState:
-    target_date = _display_reference_date(
-        st.session_state.get("active_date", previous_result.get("current_date", date.today().isoformat()))
-    )
+    target_date = _current_interaction_date(previous_result)
     previous_feedback = dict(previous_result.get("latest_feedback", {}))
     previous_state = dict(previous_result.get("current_state", {}))
     normalized_change_request = normalized_change_request or _normalize_change_request(change_request)
@@ -1547,7 +2308,7 @@ def _select_today_session(workout_sessions: list[dict[str, Any]], reference_date
     if not workout_sessions:
         return {}
     for session in workout_sessions:
-        if session.get("scheduled_date") == reference_date:
+        if _same_iso_date(session.get("scheduled_date"), reference_date):
             return session
     return {}
 
@@ -1583,16 +2344,32 @@ def _week_start_from_iso(value: str) -> date:
 
 
 def _display_reference_date(value: str) -> str:
+    iso_value = _safe_iso_date(value)
+    if not iso_value:
+        return date.today().isoformat()
     try:
-        parsed = datetime.fromisoformat(value).date()
+        return datetime.fromisoformat(iso_value).date().isoformat()
     except ValueError:
         return date.today().isoformat()
-    return parsed.isoformat()
+
+
+def _current_interaction_date(result: FitnessAgentState | dict[str, Any] | None = None) -> str:
+    picker_value = st.session_state.get("homepage_date_picker")
+    if isinstance(picker_value, datetime):
+        return picker_value.date().isoformat()
+    if isinstance(picker_value, date):
+        return picker_value.isoformat()
+    if picker_value:
+        return _display_reference_date(str(picker_value))
+    result = result or {}
+    return _display_reference_date(
+        st.session_state.get("active_date", result.get("current_date", date.today().isoformat()))
+    )
 
 
 def _iso_to_date(value: str) -> date:
     try:
-        return datetime.fromisoformat(value).date()
+        return datetime.fromisoformat(_safe_iso_date(value)).date()
     except ValueError:
         return date.today()
 
@@ -1770,9 +2547,11 @@ def _append_unique_history_item(history: list[dict], item: dict, date_key: str) 
         return list(history)
     updated_history = list(history)
     item_date = item.get(date_key)
-    if updated_history and item_date and updated_history[-1].get(date_key) == item_date:
-        updated_history[-1] = item
-        return updated_history
+    if item_date:
+        for index, existing in enumerate(updated_history):
+            if _same_iso_date(existing.get(date_key), item_date) or existing.get(date_key) == item_date:
+                updated_history[index] = item
+                return updated_history
     updated_history.append(item)
     return updated_history
 

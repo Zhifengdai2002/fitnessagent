@@ -34,7 +34,17 @@
       "upper_chest_arms"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=IODxDxX7oi4",
-    "notes": "Keep a straight line from head to heel and elevate the hands if needed."
+    "notes": "Keep a straight line from head to heel and elevate the hands if needed.",
+    "movement_pattern": "horizontal_push",
+    "replacement_group": "push_up_press",
+    "primary_muscles": [
+      "chest"
+    ],
+    "secondary_muscles": [
+      "triceps",
+      "front delts",
+      "core"
+    ]
   },
   {
     "id": "incline_push_up",
@@ -69,7 +79,16 @@
       "upper_chest_arms"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=IODxDxX7oi4",
-    "notes": "Use a bench or box to reduce the loading while keeping full range of motion."
+    "notes": "Use a bench or box to reduce the loading while keeping full range of motion.",
+    "movement_pattern": "horizontal_push",
+    "replacement_group": "push_up_press",
+    "primary_muscles": [
+      "chest"
+    ],
+    "secondary_muscles": [
+      "triceps",
+      "front delts"
+    ]
   },
   {
     "id": "barbell_bench_press",
@@ -105,7 +124,16 @@
       "upper_chest_arms"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=rT7DgCr-3pg",
-    "notes": "Retract the shoulder blades and keep the bar path controlled."
+    "notes": "Retract the shoulder blades and keep the bar path controlled.",
+    "movement_pattern": "horizontal_push",
+    "replacement_group": "chest_press",
+    "primary_muscles": [
+      "chest"
+    ],
+    "secondary_muscles": [
+      "triceps",
+      "front delts"
+    ]
   },
   {
     "id": "dumbbell_bench_press",
@@ -139,7 +167,16 @@
       "upper_chest_arms"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=VmB1G1K7v94",
-    "notes": "Drive the dumbbells up with a steady tempo and avoid flaring the elbows too early."
+    "notes": "Drive the dumbbells up with a steady tempo and avoid flaring the elbows too early.",
+    "movement_pattern": "horizontal_push",
+    "replacement_group": "chest_press",
+    "primary_muscles": [
+      "chest"
+    ],
+    "secondary_muscles": [
+      "triceps",
+      "front delts"
+    ]
   },
   {
     "id": "dumbbell_floor_press",
@@ -173,7 +210,15 @@
       "upper_chest_arms"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=uUGDRwge4F8",
-    "notes": "A shoulder-friendlier press variation with a shorter range of motion."
+    "notes": "A shoulder-friendlier press variation with a shorter range of motion.",
+    "movement_pattern": "horizontal_push",
+    "replacement_group": "chest_press",
+    "primary_muscles": [
+      "chest"
+    ],
+    "secondary_muscles": [
+      "triceps"
+    ]
   },
   {
     "id": "close_grip_push_up",
@@ -208,7 +253,16 @@
       "upper_chest_arms"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=IODxDxX7oi4",
-    "notes": "Keep the elbows closer to the body to emphasize the triceps."
+    "notes": "Keep the elbows closer to the body to emphasize the triceps.",
+    "movement_pattern": "horizontal_push",
+    "replacement_group": "triceps_push",
+    "primary_muscles": [
+      "triceps"
+    ],
+    "secondary_muscles": [
+      "chest",
+      "core"
+    ]
   },
   {
     "id": "triceps_pushdown",
@@ -238,7 +292,13 @@
       "upper_chest_arms"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=2-LAMcpzODU",
-    "notes": "Pin the elbows by the sides and avoid swinging the torso."
+    "notes": "Pin the elbows by the sides and avoid swinging the torso.",
+    "movement_pattern": "elbow_extension",
+    "replacement_group": "triceps_isolation",
+    "primary_muscles": [
+      "triceps"
+    ],
+    "secondary_muscles": []
   },
   {
     "id": "overhead_triceps_extension",
@@ -271,7 +331,13 @@
       "upper_chest_arms"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=_gsUck-7M74",
-    "notes": "Keep the ribs down and avoid arching the lower back."
+    "notes": "Keep the ribs down and avoid arching the lower back.",
+    "movement_pattern": "elbow_extension",
+    "replacement_group": "triceps_isolation",
+    "primary_muscles": [
+      "triceps"
+    ],
+    "secondary_muscles": []
   },
   {
     "id": "dumbbell_biceps_curl",
@@ -303,7 +369,15 @@
       "upper_chest_arms"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=ykJmrZ5v0Oo",
-    "notes": "Keep the upper arm still and curl without leaning back."
+    "notes": "Keep the upper arm still and curl without leaning back.",
+    "movement_pattern": "elbow_flexion",
+    "replacement_group": "biceps_curl",
+    "primary_muscles": [
+      "biceps"
+    ],
+    "secondary_muscles": [
+      "forearms"
+    ]
   },
   {
     "id": "hammer_curl",
@@ -336,7 +410,16 @@
       "upper_chest_arms"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=zC3nLlEvin4",
-    "notes": "Use a neutral grip and control the lowering phase."
+    "notes": "Use a neutral grip and control the lowering phase.",
+    "movement_pattern": "elbow_flexion",
+    "replacement_group": "biceps_curl",
+    "primary_muscles": [
+      "biceps"
+    ],
+    "secondary_muscles": [
+      "brachialis",
+      "forearms"
+    ]
   },
   {
     "id": "standing_overhead_press",
@@ -371,7 +454,17 @@
       "upper_shoulders"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=2yjwXTZQDDI",
-    "notes": "Brace hard and avoid leaning backward."
+    "notes": "Brace hard and avoid leaning backward.",
+    "movement_pattern": "vertical_push",
+    "replacement_group": "shoulder_press",
+    "primary_muscles": [
+      "shoulders"
+    ],
+    "secondary_muscles": [
+      "triceps",
+      "upper chest",
+      "core"
+    ]
   },
   {
     "id": "seated_dumbbell_shoulder_press",
@@ -404,7 +497,15 @@
       "upper_shoulders"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=qEwKCR5JCog",
-    "notes": "Use a controlled range and stop before painful overhead positions."
+    "notes": "Use a controlled range and stop before painful overhead positions.",
+    "movement_pattern": "vertical_push",
+    "replacement_group": "shoulder_press",
+    "primary_muscles": [
+      "shoulders"
+    ],
+    "secondary_muscles": [
+      "triceps"
+    ]
   },
   {
     "id": "arnold_press",
@@ -435,7 +536,15 @@
       "upper_shoulders"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=6Z15_WdXmVw",
-    "notes": "Rotate smoothly and avoid rushing the press."
+    "notes": "Rotate smoothly and avoid rushing the press.",
+    "movement_pattern": "vertical_push",
+    "replacement_group": "shoulder_press",
+    "primary_muscles": [
+      "shoulders"
+    ],
+    "secondary_muscles": [
+      "triceps"
+    ]
   },
   {
     "id": "dumbbell_lateral_raise",
@@ -465,7 +574,13 @@
       "upper_shoulders"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=3VcKaXpzqRo",
-    "notes": "Raise to shoulder level with soft elbows and no shrugging."
+    "notes": "Raise to shoulder level with soft elbows and no shrugging.",
+    "movement_pattern": "shoulder_abduction",
+    "replacement_group": "shoulder_raise",
+    "primary_muscles": [
+      "side delts"
+    ],
+    "secondary_muscles": []
   },
   {
     "id": "front_raise",
@@ -495,7 +610,13 @@
       "upper_shoulders"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=-t7fuZ0KhDA",
-    "notes": "Lift with control and keep the rib cage stacked."
+    "notes": "Lift with control and keep the rib cage stacked.",
+    "movement_pattern": "shoulder_flexion",
+    "replacement_group": "shoulder_raise",
+    "primary_muscles": [
+      "front delts"
+    ],
+    "secondary_muscles": []
   },
   {
     "id": "rear_delt_fly",
@@ -528,7 +649,15 @@
       "back_training"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=EA7u4Q_8HQ0",
-    "notes": "Hinge lightly and spread the arms wide without shrugging."
+    "notes": "Hinge lightly and spread the arms wide without shrugging.",
+    "movement_pattern": "horizontal_abduction",
+    "replacement_group": "rear_delt_upper_back",
+    "primary_muscles": [
+      "rear delts"
+    ],
+    "secondary_muscles": [
+      "upper back"
+    ]
   },
   {
     "id": "pike_push_up",
@@ -562,7 +691,16 @@
       "upper_shoulders"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=srprqb9sKzg",
-    "notes": "Stack the hips high and lower the crown of the head toward the floor."
+    "notes": "Stack the hips high and lower the crown of the head toward the floor.",
+    "movement_pattern": "vertical_push",
+    "replacement_group": "shoulder_press",
+    "primary_muscles": [
+      "shoulders"
+    ],
+    "secondary_muscles": [
+      "triceps",
+      "upper chest"
+    ]
   },
   {
     "id": "lat_pulldown",
@@ -597,7 +735,16 @@
       "back_training"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=CAwf7n6Luuc",
-    "notes": "Pull to the upper chest and avoid excessive torso lean."
+    "notes": "Pull to the upper chest and avoid excessive torso lean.",
+    "movement_pattern": "vertical_pull",
+    "replacement_group": "lat_pull",
+    "primary_muscles": [
+      "lats"
+    ],
+    "secondary_muscles": [
+      "upper back",
+      "biceps"
+    ]
   },
   {
     "id": "one_arm_dumbbell_row",
@@ -633,7 +780,17 @@
       "back_training"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=pYcpY20QaE8",
-    "notes": "Drive the elbow toward the hip and keep the spine neutral."
+    "notes": "Drive the elbow toward the hip and keep the spine neutral.",
+    "movement_pattern": "horizontal_pull",
+    "replacement_group": "row",
+    "primary_muscles": [
+      "lats"
+    ],
+    "secondary_muscles": [
+      "mid back",
+      "rear delts",
+      "biceps"
+    ]
   },
   {
     "id": "seated_cable_row",
@@ -666,7 +823,16 @@
       "back_training"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=GZbfZ033f74",
-    "notes": "Initiate with the shoulder blades and keep the chest open."
+    "notes": "Initiate with the shoulder blades and keep the chest open.",
+    "movement_pattern": "horizontal_pull",
+    "replacement_group": "row",
+    "primary_muscles": [
+      "mid back"
+    ],
+    "secondary_muscles": [
+      "lats",
+      "biceps"
+    ]
   },
   {
     "id": "inverted_row",
@@ -701,7 +867,17 @@
       "back_training"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=J3pQ0i4zK0k",
-    "notes": "Keep the body rigid and pull the chest toward the bar."
+    "notes": "Keep the body rigid and pull the chest toward the bar.",
+    "movement_pattern": "horizontal_pull",
+    "replacement_group": "row",
+    "primary_muscles": [
+      "upper back"
+    ],
+    "secondary_muscles": [
+      "lats",
+      "biceps",
+      "core"
+    ]
   },
   {
     "id": "assisted_pull_up",
@@ -736,7 +912,16 @@
       "back_training"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=HRV5YKKaeVw",
-    "notes": "Use assistance to maintain full range and smooth control."
+    "notes": "Use assistance to maintain full range and smooth control.",
+    "movement_pattern": "vertical_pull",
+    "replacement_group": "lat_pull",
+    "primary_muscles": [
+      "lats"
+    ],
+    "secondary_muscles": [
+      "upper back",
+      "biceps"
+    ]
   },
   {
     "id": "face_pull",
@@ -770,7 +955,16 @@
       "upper_shoulders"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=rep-qVOkqgk",
-    "notes": "Pull toward the face with elbows high and shoulder blades back."
+    "notes": "Pull toward the face with elbows high and shoulder blades back.",
+    "movement_pattern": "horizontal_abduction",
+    "replacement_group": "rear_delt_upper_back",
+    "primary_muscles": [
+      "rear delts"
+    ],
+    "secondary_muscles": [
+      "upper back",
+      "rotator cuff"
+    ]
   },
   {
     "id": "chest_supported_row",
@@ -804,7 +998,16 @@
       "back_training"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=6TSP1TRMUzs",
-    "notes": "Keep the chest planted on the bench and row without jerking."
+    "notes": "Keep the chest planted on the bench and row without jerking.",
+    "movement_pattern": "horizontal_pull",
+    "replacement_group": "row",
+    "primary_muscles": [
+      "mid back"
+    ],
+    "secondary_muscles": [
+      "lats",
+      "rear delts"
+    ]
   },
   {
     "id": "straight_arm_pulldown",
@@ -836,7 +1039,16 @@
       "back_training"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=hwiaJ8L8pZ4",
-    "notes": "Keep the elbows softly bent and pull from the lats."
+    "notes": "Keep the elbows softly bent and pull from the lats.",
+    "movement_pattern": "shoulder_extension",
+    "replacement_group": "lat_isolation",
+    "primary_muscles": [
+      "lats"
+    ],
+    "secondary_muscles": [
+      "serratus",
+      "triceps"
+    ]
   },
   {
     "id": "goblet_squat",
@@ -873,7 +1085,16 @@
       "lower_legs_glutes"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=MeIiIdhvXT4",
-    "notes": "Reduce depth if knee discomfort appears."
+    "notes": "Reduce depth if knee discomfort appears.",
+    "movement_pattern": "squat",
+    "replacement_group": "squat_pattern",
+    "primary_muscles": [
+      "quads"
+    ],
+    "secondary_muscles": [
+      "glutes",
+      "core"
+    ]
   },
   {
     "id": "barbell_back_squat",
@@ -910,7 +1131,17 @@
       "lower_legs_glutes"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=ultWZbUMPL8",
-    "notes": "Use only when technique and mobility are solid."
+    "notes": "Use only when technique and mobility are solid.",
+    "movement_pattern": "squat",
+    "replacement_group": "squat_pattern",
+    "primary_muscles": [
+      "quads"
+    ],
+    "secondary_muscles": [
+      "glutes",
+      "adductors",
+      "core"
+    ]
   },
   {
     "id": "romanian_deadlift",
@@ -945,7 +1176,16 @@
       "lower_legs_glutes"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=2SHsk9AzdjA",
-    "notes": "Hinge at the hips and keep the load close to the body."
+    "notes": "Hinge at the hips and keep the load close to the body.",
+    "movement_pattern": "hip_hinge",
+    "replacement_group": "hinge_pattern",
+    "primary_muscles": [
+      "hamstrings"
+    ],
+    "secondary_muscles": [
+      "glutes",
+      "lower back"
+    ]
   },
   {
     "id": "glute_bridge",
@@ -981,7 +1221,16 @@
       "functional_core"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=wPM8icPu6H8",
-    "notes": "Pause at the top and avoid overextending the low back."
+    "notes": "Pause at the top and avoid overextending the low back.",
+    "movement_pattern": "hip_extension",
+    "replacement_group": "glute_bridge_pattern",
+    "primary_muscles": [
+      "glutes"
+    ],
+    "secondary_muscles": [
+      "hamstrings",
+      "core"
+    ]
   },
   {
     "id": "hip_thrust",
@@ -1015,7 +1264,15 @@
       "lower_legs_glutes"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=LM8XHLYJoYs",
-    "notes": "Drive through the heels and keep the ribs down at lockout."
+    "notes": "Drive through the heels and keep the ribs down at lockout.",
+    "movement_pattern": "hip_extension",
+    "replacement_group": "glute_bridge_pattern",
+    "primary_muscles": [
+      "glutes"
+    ],
+    "secondary_muscles": [
+      "hamstrings"
+    ]
   },
   {
     "id": "walking_lunge",
@@ -1052,7 +1309,16 @@
       "lower_legs_glutes"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=QOVaHwm-Q6U",
-    "notes": "Take controlled steps and keep the torso upright."
+    "notes": "Take controlled steps and keep the torso upright.",
+    "movement_pattern": "single_leg_squat",
+    "replacement_group": "lunge_pattern",
+    "primary_muscles": [
+      "quads"
+    ],
+    "secondary_muscles": [
+      "glutes",
+      "hamstrings"
+    ]
   },
   {
     "id": "bulgarian_split_squat",
@@ -1089,7 +1355,16 @@
       "lower_legs_glutes"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=2C-uNgKwPLE",
-    "notes": "Use a smaller range at first and stay balanced over the front foot."
+    "notes": "Use a smaller range at first and stay balanced over the front foot.",
+    "movement_pattern": "single_leg_squat",
+    "replacement_group": "lunge_pattern",
+    "primary_muscles": [
+      "quads"
+    ],
+    "secondary_muscles": [
+      "glutes",
+      "hamstrings"
+    ]
   },
   {
     "id": "step_up",
@@ -1127,7 +1402,16 @@
       "lower_legs_glutes"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=dQqApCGd5Ss",
-    "notes": "Choose a box height that allows smooth control."
+    "notes": "Choose a box height that allows smooth control.",
+    "movement_pattern": "single_leg_squat",
+    "replacement_group": "step_up_pattern",
+    "primary_muscles": [
+      "quads"
+    ],
+    "secondary_muscles": [
+      "glutes",
+      "hamstrings"
+    ]
   },
   {
     "id": "leg_press",
@@ -1161,7 +1445,16 @@
       "lower_legs_glutes"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=IZxyjW7MPJQ",
-    "notes": "Do not let the knees collapse inward at the bottom."
+    "notes": "Do not let the knees collapse inward at the bottom.",
+    "movement_pattern": "squat",
+    "replacement_group": "squat_pattern",
+    "primary_muscles": [
+      "quads"
+    ],
+    "secondary_muscles": [
+      "glutes",
+      "hamstrings"
+    ]
   },
   {
     "id": "reverse_lunge",
@@ -1197,7 +1490,16 @@
       "lower_legs_glutes"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=wrwwXE_x-pQ",
-    "notes": "Step backward softly and keep pressure through the front foot."
+    "notes": "Step backward softly and keep pressure through the front foot.",
+    "movement_pattern": "single_leg_squat",
+    "replacement_group": "lunge_pattern",
+    "primary_muscles": [
+      "quads"
+    ],
+    "secondary_muscles": [
+      "glutes",
+      "hamstrings"
+    ]
   },
   {
     "id": "forearm_plank",
@@ -1233,7 +1535,16 @@
       "functional_core"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=pSHjTRCQxIw",
-    "notes": "Keep the pelvis neutral and breathe steadily."
+    "notes": "Keep the pelvis neutral and breathe steadily.",
+    "movement_pattern": "anti_extension_core",
+    "replacement_group": "plank_pattern",
+    "primary_muscles": [
+      "core"
+    ],
+    "secondary_muscles": [
+      "abs",
+      "glutes"
+    ]
   },
   {
     "id": "side_plank",
@@ -1266,7 +1577,16 @@
       "functional_core"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=K2VljzCC16g",
-    "notes": "Stack the hips and keep the neck long."
+    "notes": "Stack the hips and keep the neck long.",
+    "movement_pattern": "anti_lateral_flexion_core",
+    "replacement_group": "plank_pattern",
+    "primary_muscles": [
+      "obliques"
+    ],
+    "secondary_muscles": [
+      "core",
+      "glutes"
+    ]
   },
   {
     "id": "dead_bug",
@@ -1302,7 +1622,16 @@
       "functional_core"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=g_BYB0R-4Ws",
-    "notes": "Move slowly and keep the lower back gently pressed down."
+    "notes": "Move slowly and keep the lower back gently pressed down.",
+    "movement_pattern": "anti_extension_core",
+    "replacement_group": "dead_bug_pattern",
+    "primary_muscles": [
+      "core"
+    ],
+    "secondary_muscles": [
+      "deep abs",
+      "hip flexors"
+    ]
   },
   {
     "id": "bird_dog",
@@ -1336,7 +1665,16 @@
       "functional_core"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=wiFNA3sqjCA",
-    "notes": "Reach long rather than high and keep the trunk still."
+    "notes": "Reach long rather than high and keep the trunk still.",
+    "movement_pattern": "anti_rotation_core",
+    "replacement_group": "bird_dog_pattern",
+    "primary_muscles": [
+      "core"
+    ],
+    "secondary_muscles": [
+      "glutes",
+      "low back"
+    ]
   },
   {
     "id": "russian_twist",
@@ -1371,7 +1709,16 @@
       "functional_core"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=wkD8rjkodUI",
-    "notes": "Rotate through the trunk with control, not momentum."
+    "notes": "Rotate through the trunk with control, not momentum.",
+    "movement_pattern": "rotation_core",
+    "replacement_group": "rotation_core",
+    "primary_muscles": [
+      "obliques"
+    ],
+    "secondary_muscles": [
+      "abs",
+      "hip flexors"
+    ]
   },
   {
     "id": "hanging_knee_raise",
@@ -1406,7 +1753,16 @@
       "functional_core"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=Rd8jSmQbN8w",
-    "notes": "Curl the pelvis up instead of swinging the legs."
+    "notes": "Curl the pelvis up instead of swinging the legs.",
+    "movement_pattern": "hip_flexion_core",
+    "replacement_group": "knee_raise_pattern",
+    "primary_muscles": [
+      "abs"
+    ],
+    "secondary_muscles": [
+      "hip flexors",
+      "grip"
+    ]
   },
   {
     "id": "box_jump",
@@ -1440,7 +1796,16 @@
       "functional_power"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=52r_Ul5k03g",
-    "notes": "Land softly and step down between reps to reduce impact."
+    "notes": "Land softly and step down between reps to reduce impact.",
+    "movement_pattern": "jump_power",
+    "replacement_group": "jump_power",
+    "primary_muscles": [
+      "quads"
+    ],
+    "secondary_muscles": [
+      "glutes",
+      "calves"
+    ]
   },
   {
     "id": "jump_squat",
@@ -1474,7 +1839,16 @@
       "functional_power"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=CVaEhXotL7M",
-    "notes": "Dip shallow and explode upward while landing softly."
+    "notes": "Dip shallow and explode upward while landing softly.",
+    "movement_pattern": "jump_power",
+    "replacement_group": "jump_power",
+    "primary_muscles": [
+      "quads"
+    ],
+    "secondary_muscles": [
+      "glutes",
+      "calves"
+    ]
   },
   {
     "id": "kettlebell_swing",
@@ -1510,7 +1884,16 @@
       "functional_conditioning"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=YSxHifyI2cY",
-    "notes": "Generate force from the hips and keep the arms relaxed."
+    "notes": "Generate force from the hips and keep the arms relaxed.",
+    "movement_pattern": "ballistic_hinge",
+    "replacement_group": "hinge_power",
+    "primary_muscles": [
+      "glutes"
+    ],
+    "secondary_muscles": [
+      "hamstrings",
+      "core"
+    ]
   },
   {
     "id": "dumbbell_thruster",
@@ -1547,7 +1930,17 @@
       "functional_conditioning"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=L219ltL15zk",
-    "notes": "Drive hard out of the squat and press in one fluid motion."
+    "notes": "Drive hard out of the squat and press in one fluid motion.",
+    "movement_pattern": "squat_to_press",
+    "replacement_group": "thruster_pattern",
+    "primary_muscles": [
+      "quads"
+    ],
+    "secondary_muscles": [
+      "glutes",
+      "shoulders",
+      "triceps"
+    ]
   },
   {
     "id": "mountain_climber",
@@ -1582,7 +1975,16 @@
       "functional_conditioning"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=nmwgirgXLYM",
-    "notes": "Keep the hips low and move the knees quickly without bouncing."
+    "notes": "Keep the hips low and move the knees quickly without bouncing.",
+    "movement_pattern": "conditioning_core",
+    "replacement_group": "bodyweight_conditioning",
+    "primary_muscles": [
+      "core"
+    ],
+    "secondary_muscles": [
+      "shoulders",
+      "hip flexors"
+    ]
   },
   {
     "id": "burpee",
@@ -1616,7 +2018,17 @@
       "functional_conditioning"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=TU8QYVW0gDU",
-    "notes": "Step back instead of jumping if impact tolerance is low."
+    "notes": "Step back instead of jumping if impact tolerance is low.",
+    "movement_pattern": "full_body_conditioning",
+    "replacement_group": "bodyweight_conditioning",
+    "primary_muscles": [
+      "full body"
+    ],
+    "secondary_muscles": [
+      "core",
+      "quads",
+      "chest"
+    ]
   },
   {
     "id": "jump_rope",
@@ -1649,7 +2061,16 @@
       "functional_conditioning"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=1BZMwVre5oc",
-    "notes": "Keep jumps small and land softly on the balls of the feet."
+    "notes": "Keep jumps small and land softly on the balls of the feet.",
+    "movement_pattern": "cyclical_conditioning",
+    "replacement_group": "cardio_conditioning",
+    "primary_muscles": [
+      "calves"
+    ],
+    "secondary_muscles": [
+      "shoulders",
+      "cardio"
+    ]
   },
   {
     "id": "high_knees",
@@ -1683,7 +2104,16 @@
       "functional_conditioning"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=8opcQdC-V-U",
-    "notes": "Pump the arms and keep the torso upright while staying light on the feet."
+    "notes": "Pump the arms and keep the torso upright while staying light on the feet.",
+    "movement_pattern": "cyclical_conditioning",
+    "replacement_group": "cardio_conditioning",
+    "primary_muscles": [
+      "hip flexors"
+    ],
+    "secondary_muscles": [
+      "core",
+      "cardio"
+    ]
   },
   {
     "id": "skater_hops",
@@ -1718,6 +2148,15 @@
       "functional_power"
     ],
     "youtube_url": "https://www.youtube.com/watch?v=XFQohfOEu3E",
-    "notes": "Stick each landing before pushing into the next bound."
+    "notes": "Stick each landing before pushing into the next bound.",
+    "movement_pattern": "lateral_power_conditioning",
+    "replacement_group": "lateral_conditioning",
+    "primary_muscles": [
+      "glutes"
+    ],
+    "secondary_muscles": [
+      "quads",
+      "cardio"
+    ]
   }
 ]

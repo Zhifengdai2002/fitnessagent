@@ -15,6 +15,7 @@ from agent.tools.food_tool import (
     get_food_by_name,
     load_food_db,
 )
+from agent.tools.rag_tool import search_similar_exercises
 
 __all__ = [
     "build_video_resources",
@@ -28,4 +29,5 @@ __all__ = [
     "get_food_by_name",
     "load_exercise_db",
     "load_food_db",
+    "search_similar_exercises",
 ]
