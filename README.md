@@ -8,9 +8,8 @@ FitnessAgent is a Streamlit fitness coaching app backed by a LangGraph workflow 
 - Cycle-based training plans with a visible Today's Plan and Training Cycle.
 - AI Coach floating chat box for plan questions and direct plan edits.
 - AI Coach can adjust today's workout intensity, cancel today's workout, replace same-type exercises, update nutrition items, and preserve previous edits as the next baseline.
-- Hard training rules are enforced: beginner plans use 2 exercises, intermediate plans use 3, advanced plans use 4, and every exercise uses 4 sets.
-- Rep rules: beginner baseline is 6-10 reps; intermediate and advanced baseline is 10-15 reps.
-- Higher intensity adds one exercise and raises reps/notes; lower intensity reduces reps/notes and can reduce exercise count without going below 2 exercises.
+- Hard training rules are enforced for safety.
+- Personlized plan for higher or lower intensity
 - Daily Feedback records the final Today's Plan, completion status, current weight, body fat, feeling note, and emoji.
 - History groups daily records by cycle.
 - When the current cycle ends, Make Tomorrow's Plan automatically generates the next cycle and updates Today's Plan.
