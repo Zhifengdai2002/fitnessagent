@@ -1204,7 +1204,6 @@ def _build_chat_context(result: FitnessAgentState | dict[str, Any]) -> str:
         for exercise in today_session.get("exercises", [])
     ] if today_session else []
     latest_feedback = result.get("latest_feedback", {})
-    daily_history = result.get("daily_history", [])[-3:]
     return json.dumps(
         {
             "active_date": current_date,
@@ -1244,7 +1243,6 @@ def _build_chat_context(result: FitnessAgentState | dict[str, Any]) -> str:
                 "emoji": latest_feedback.get("feeling_emoji", ""),
                 "notes": latest_feedback.get("performance_notes", ""),
             },
-            "recent_daily_history": daily_history,
         },
         ensure_ascii=True,
     )
@@ -1349,137 +1347,57 @@ def _render_agent_output(result: FitnessAgentState) -> None:
                 st.markdown("**Revision Reasons**")
                 st.markdown("\n".join(f"- {reason}" for reason in reasons))
         else:
-            st.write("No evaluation yet. Daily logs are saved in History while the cycle plan stays fixed.")
+            st.write("No evaluation yet. The cycle plan stays fixed until you ask AI Coach to adjust it.")
 
     with history_container:
-        st.subheader("History")
-        daily_history = result.get("daily_history") or st.session_state.get("daily_history", [])
-        daily_history = _repair_daily_history_against_plan(daily_history, current_plan)
-        if daily_history != (result.get("daily_history") or []):
-            result["daily_history"] = daily_history
-            if st.session_state.get("agent_result"):
-                st.session_state["agent_result"]["daily_history"] = daily_history
-            st.session_state["daily_history"] = daily_history
-        if not daily_history:
-            st.write("No daily history yet.")
-        for cycle_number, cycle_items in _group_daily_history_by_cycle(daily_history):
-            with st.expander(f"Cycle {cycle_number}", expanded=False):
-                for item in reversed(cycle_items):
-                    _render_daily_history_item(item)
+        _render_history_section(result)
 
 
-def _render_daily_history_item(item: dict[str, Any]) -> None:
-    actions = item.get("completed_actions", [])
-    completed_plan = item.get("completed_plan", {})
-    action_text = _history_action_text(completed_plan, actions)
-    feedback = item.get("feedback", {})
-    metric_text = (
-        f"{item.get('weight_kg', '-')} kg, "
-        f"{item.get('body_fat_pct', '-')}% body fat"
-    )
-    st.markdown(
-        f"- **{item.get('date', '')}** {feedback.get('emoji', '')} "
-        f"{metric_text} · {action_text}"
-    )
-    injury_note = _history_injury_note(item)
-    if injury_note:
-        st.caption(injury_note)
-    feeling = str(feedback.get("workout_feeling", "")).strip()
-    if feeling:
-        st.caption(feeling)
+def _render_history_section(result: FitnessAgentState | dict[str, Any]) -> None:
+    st.subheader("History")
+    daily_history = result.get("daily_history") or st.session_state.get("daily_history", [])
+    if not daily_history:
+        st.write("No daily history yet.")
+        return
 
-
-def _repair_daily_history_against_plan(daily_history: list[dict[str, Any]], current_plan: dict[str, Any]) -> list[dict[str, Any]]:
-    sessions = _sort_workout_sessions(current_plan.get("workout_sessions", []))
-    if not daily_history or not sessions:
-        return list(daily_history or [])
-
-    repaired: list[dict[str, Any]] = []
-    changed = False
-    for item in daily_history:
-        item_copy = deepcopy(item)
-        item_date = _safe_iso_date(item_copy.get("date"))
-        completed_plan = item_copy.get("completed_plan", {})
-        completed_date = _safe_iso_date(completed_plan.get("scheduled_date")) if completed_plan else ""
-        plan_session = _select_today_session(sessions, item_date)
-        if _history_item_needs_plan_repair(item_copy, plan_session, completed_date, item_date):
-            item_copy["completed_plan"] = deepcopy(plan_session)
-            item_copy["completed_actions"] = _completed_actions_from_session(plan_session)
-            item_copy["cycle_number"] = _history_item_cycle_number({"completed_plan": plan_session})
-            feedback = dict(item_copy.get("feedback", {}))
-            feedback["injury_areas"] = _history_injury_areas(plan_session, {"pain_points": []})
-            item_copy["feedback"] = feedback
-            changed = True
-        repaired.append(item_copy)
-    return repaired if changed else list(daily_history)
-
-
-def _history_item_needs_plan_repair(
-    item: dict[str, Any],
-    plan_session: dict[str, Any],
-    completed_date: str,
-    item_date: str,
-) -> bool:
-    if not plan_session:
-        return False
-    completed_plan = item.get("completed_plan", {})
-    if not completed_plan:
-        return True
-    if completed_date != item_date:
-        return True
-    plan_is_cancelled = bool(plan_session.get("is_cancelled"))
-    completed_is_cancelled = bool(completed_plan.get("is_cancelled"))
-    if plan_is_cancelled != completed_is_cancelled:
-        return True
-    plan_actions = _completed_actions_from_session(plan_session)
-    completed_actions = [
-        str(action).strip()
-        for action in item.get("completed_actions", [])
-        if str(action).strip()
-    ]
-    if plan_actions and not completed_actions:
-        return True
-    if completed_actions and completed_actions != plan_actions:
-        return True
-    if plan_actions and completed_plan.get("exercises") != plan_session.get("exercises"):
-        return True
-    return False
-
-
-def _history_action_text(completed_plan: dict[str, Any], actions: list[str]) -> str:
-    if completed_plan.get("is_cancelled"):
-        return "Workout cancelled"
-    if actions:
-        return ", ".join(actions)
-    if completed_plan and completed_plan.get("scheduled_date"):
-        return "Workout recorded with no exercises"
-    return "No scheduled workout"
-
-
-def _history_injury_note(item: dict[str, Any]) -> str:
-    feedback = item.get("feedback", {})
-    injury_areas = _coerce_string_list(feedback.get("injury_areas"), [])
-    if not injury_areas:
-        injury_areas = _coerce_string_list(item.get("injury_areas"), [])
-    if injury_areas:
-        return f"Injury noted: {', '.join(injury_areas)}"
-    return ""
+    for cycle_number, cycle_items in _group_daily_history_by_cycle(daily_history):
+        with st.expander(f"Cycle {cycle_number}", expanded=False):
+            for item in sorted(cycle_items, key=lambda entry: _safe_iso_date(entry.get("date")), reverse=True):
+                _render_daily_history_item(item)
 
 
 def _group_daily_history_by_cycle(daily_history: list[dict[str, Any]]) -> list[tuple[int, list[dict[str, Any]]]]:
     grouped: dict[int, list[dict[str, Any]]] = {}
     for item in daily_history:
-        cycle_number = _history_item_cycle_number(item)
-        grouped.setdefault(cycle_number, []).append(item)
+        grouped.setdefault(_history_item_cycle_number(item), []).append(item)
     return sorted(grouped.items(), key=lambda group: group[0], reverse=True)
 
 
-def _history_item_cycle_number(item: dict[str, Any]) -> int:
+def _render_daily_history_item(item: dict[str, Any]) -> None:
     completed_plan = item.get("completed_plan", {})
-    try:
-        return int(item.get("cycle_number") or completed_plan.get("cycle_number") or 1)
-    except (TypeError, ValueError):
-        return 1
+    feedback = item.get("feedback", {})
+    emoji = str(feedback.get("emoji", "")).strip()
+    metric_text = f"{item.get('weight_kg', '-')} kg, {item.get('body_fat_pct', '-')}% body fat"
+    focus = str(item.get("plan_focus") or completed_plan.get("focus") or "No scheduled workout").strip()
+    status = str(item.get("status") or "").strip()
+
+    if status == "cancelled" or completed_plan.get("is_cancelled"):
+        action_text = "Workout cancelled"
+    else:
+        actions = [
+            str(action).strip()
+            for action in item.get("completed_actions", [])
+            if str(action).strip()
+        ]
+        action_text = ", ".join(actions) if actions else "No scheduled workout"
+
+    st.markdown(f"- **{item.get('date', '')}** {emoji} {metric_text} · **{focus}** · {action_text}")
+    feeling = str(feedback.get("workout_feeling", "")).strip()
+    if feeling:
+        st.caption(feeling)
+    injury_areas = _coerce_string_list(feedback.get("injury_areas"), [])
+    if injury_areas:
+        st.caption(f"Injury noted: {', '.join(injury_areas)}")
 
 
 def _render_daily_feedback_section() -> None:
@@ -1530,15 +1448,9 @@ def _render_daily_feedback_section() -> None:
         if current_session.get("scheduled_date") and not current_session.get("is_cancelled"):
             completed_training_days.add(current_session["scheduled_date"])
 
-        planned_days = {
-            session.get("scheduled_date", "")
-            for session in _sort_workout_sessions(result.get("current_plan", {}).get("workout_sessions", []))
-            if session.get("scheduled_date") and not session.get("is_ad_hoc")
-        }
-        week_is_complete = bool(planned_days) and planned_days.issubset(completed_training_days)
-
         target_date = _next_calendar_date(current_reference_date)
-        if week_is_complete:
+        should_rollover_cycle = _target_starts_new_cycle(result.get("current_plan", {}), target_date)
+        if should_rollover_cycle:
             current_cycle_label = f"{result.get('current_plan', {}).get('cycle_number', 1)}"
             st.session_state["week_history"].append(
                 {
@@ -1546,12 +1458,11 @@ def _render_daily_feedback_section() -> None:
                     "summary": result.get("current_plan", {}).get("summary", "Completed week"),
                 }
             )
-            target_date = _next_calendar_date(current_reference_date)
             st.session_state["active_date"] = target_date
             st.session_state["pending_homepage_date_picker"] = target_date
             st.session_state["completed_training_days"] = []
             st.session_state["last_action_message"] = (
-                "Today's plan and feedback were saved. This cycle is now marked complete."
+                "Today's plan and feedback were saved. A new cycle plan is now shown as Today's Plan."
             )
         else:
             st.session_state["active_date"] = target_date
@@ -1571,6 +1482,17 @@ def _render_daily_feedback_section() -> None:
             workout_feeling=workout_feeling,
             feeling_emoji=feeling_emoji,
         )
+        if should_rollover_cycle:
+            updated_result = _generate_next_cycle_after_feedback(
+                profile_inputs=profile_inputs,
+                previous_result=updated_result,
+                feedback_date=current_reference_date,
+                target_date=target_date,
+                current_weight_kg=float(current_weight_kg),
+                current_body_fat_pct=float(current_body_fat_pct),
+                workout_feeling=workout_feeling,
+                feeling_emoji=feeling_emoji,
+            )
         st.session_state["agent_result"] = updated_result
         st.session_state["daily_history"] = updated_result.get("daily_history", [])
         st.session_state["last_feedback_summary"] = _daily_feedback_summary(
@@ -1582,6 +1504,78 @@ def _render_daily_feedback_section() -> None:
     feedback_summary = st.session_state.get("last_feedback_summary", "")
     if feedback_summary:
         st.info(f"Saved feedback: {feedback_summary}")
+
+
+def _target_starts_new_cycle(current_plan: dict[str, Any], target_date: str) -> bool:
+    cycle_end_date = _safe_iso_date(current_plan.get("cycle_end_date"))
+    target_iso = _safe_iso_date(target_date)
+    if not cycle_end_date or not target_iso:
+        return False
+    try:
+        return datetime.fromisoformat(target_iso).date() > datetime.fromisoformat(cycle_end_date).date()
+    except ValueError:
+        return False
+
+
+def _generate_next_cycle_after_feedback(
+    *,
+    profile_inputs: dict[str, Any],
+    previous_result: FitnessAgentState,
+    feedback_date: str,
+    target_date: str,
+    current_weight_kg: float,
+    current_body_fat_pct: float,
+    workout_feeling: str,
+    feeling_emoji: str,
+) -> FitnessAgentState:
+    latest_feedback = dict(previous_result.get("latest_feedback", {}))
+    feedback_summary = _daily_feedback_summary(workout_feeling=workout_feeling, feeling_emoji=feeling_emoji)
+    latest_feedback["performance_notes"] = feedback_summary
+    latest_feedback.setdefault("date", feedback_date)
+    latest_feedback.setdefault("completed_actions", [])
+    latest_feedback.setdefault("completed_workouts", [])
+    latest_feedback.setdefault("pain_points", _pain_points_from_text(workout_feeling))
+    latest_feedback.setdefault("soreness_areas", _soreness_areas_from_text(workout_feeling))
+    latest_feedback.setdefault("fatigue_level", _emoji_training_signals(feeling_emoji)[0])
+    latest_feedback.setdefault("motivation_level", _emoji_training_signals(feeling_emoji)[1])
+    latest_feedback.setdefault("recovery_score", _emoji_training_signals(feeling_emoji)[2])
+    latest_feedback.setdefault("pain_level", 5 if latest_feedback.get("pain_points") else 0)
+    latest_feedback["manual_log"] = {
+        "date": feedback_date,
+        "weight_kg": current_weight_kg,
+        "body_fat_pct": current_body_fat_pct,
+        "notes": workout_feeling,
+        "feeling_emoji": feeling_emoji,
+    }
+
+    base_state = _build_initial_state(profile_inputs)
+    rollover_state: FitnessAgentState = {
+        **base_state,
+        "thread_id": st.session_state["thread_id"],
+        "current_date": target_date,
+        "plan_change_request": "Generate the next cycle plan after the previous cycle ended.",
+        "normalized_change_request": {},
+        "current_state": {
+            **dict(previous_result.get("current_state", {})),
+            "date": target_date,
+            "weight_kg": current_weight_kg,
+            "body_fat_pct": current_body_fat_pct,
+            "notes": "Generate the next cycle plan after incorporating the latest daily feedback.",
+        },
+        "latest_feedback": latest_feedback,
+        "current_plan": previous_result.get("current_plan", {}),
+        "plan_history": previous_result.get("plan_history", []),
+        "daily_history": previous_result.get("daily_history", []),
+        "feedback_history": previous_result.get("feedback_history", []),
+        "state_history": previous_result.get("state_history", []),
+    }
+    try:
+        next_result = run_agent(rollover_state)
+    except Exception as exc:
+        st.error(f"Could not generate the next cycle plan: {exc}")
+        return previous_result
+    next_result["daily_history"] = list(previous_result.get("daily_history", []))
+    return next_result
 
 
 def _record_daily_feedback_and_advance(
@@ -1623,7 +1617,9 @@ def _record_daily_feedback_and_advance(
     }
     daily_entry = {
         "date": feedback_date,
-        "cycle_number": _history_item_cycle_number({"completed_plan": current_session}),
+        "cycle_number": _cycle_number_for_feedback_date(previous_result, current_session, feedback_date),
+        "plan_focus": current_session.get("focus", "No scheduled workout") if current_session else "No scheduled workout",
+        "status": _daily_history_status(current_session),
         "weight_kg": current_weight_kg,
         "body_fat_pct": current_body_fat_pct,
         "completed_actions": completed_actions,
@@ -1655,6 +1651,36 @@ def _record_daily_feedback_and_advance(
         "date",
     )
     return updated_result
+
+
+def _daily_history_status(current_session: dict[str, Any]) -> str:
+    if not current_session:
+        return "no_scheduled"
+    if current_session.get("is_cancelled"):
+        return "cancelled"
+    return "completed"
+
+
+def _cycle_number_for_feedback_date(
+    result: FitnessAgentState | dict[str, Any],
+    current_session: dict[str, Any],
+    feedback_date: str,
+) -> int:
+    if current_session:
+        return _history_item_cycle_number({"completed_plan": current_session})
+    current_plan = result.get("current_plan", {})
+    feedback_iso = _safe_iso_date(feedback_date)
+    cycle_start = _safe_iso_date(current_plan.get("cycle_start_date"))
+    cycle_end = _safe_iso_date(current_plan.get("cycle_end_date"))
+    try:
+        feedback_day = datetime.fromisoformat(feedback_iso).date()
+        start_day = datetime.fromisoformat(cycle_start).date()
+        end_day = datetime.fromisoformat(cycle_end).date()
+    except ValueError:
+        return _history_item_cycle_number({"completed_plan": current_plan})
+    if start_day <= feedback_day <= end_day:
+        return _history_item_cycle_number({"completed_plan": current_plan})
+    return _history_item_cycle_number({"completed_plan": current_session})
 
 
 def _session_for_history_date(
@@ -1707,6 +1733,14 @@ def _history_injury_areas(current_session: dict[str, Any], latest_feedback: dict
     if current_session.get("injury_reported"):
         return ["reported injury area"]
     return list(latest_feedback.get("pain_points", []))
+
+
+def _history_item_cycle_number(item: dict[str, Any]) -> int:
+    completed_plan = item.get("completed_plan", {})
+    try:
+        return int(item.get("cycle_number") or completed_plan.get("cycle_number") or 1)
+    except (TypeError, ValueError):
+        return 1
 
 
 def _build_daily_feedback(
