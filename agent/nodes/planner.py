@@ -201,6 +201,7 @@ def plan_generation_node(state: FitnessAgentState) -> FitnessAgentState:
                 "profile_notes": state.get("profile_notes", ""),
                 "plan_change_request": state.get("plan_change_request", ""),
                 "normalized_change_request": state.get("normalized_change_request", {}),
+                "memory_context": state.get("memory_context", {}),
                 "current_day_name": _resolve_current_day_name(state.get("current_date", "")),
                 "current_state": planning_current_state,
                 "latest_feedback": planning_latest_feedback,

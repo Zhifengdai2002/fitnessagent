@@ -50,6 +50,7 @@ PERSISTED_SESSION_KEYS = [
     "completed_training_days",
     "week_history",
     "daily_history",
+    "memory_store",
     "assistant_chat_messages",
     "last_feedback_summary",
     "last_action_message",
@@ -93,6 +94,7 @@ def _initialize_session_state() -> None:
         "completed_training_days": [],
         "week_history": [],
         "daily_history": [],
+        "memory_store": _default_memory_store(),
         "assistant_chat_messages": [],
         "assistant_chat_open": False,
         "last_action_message": "",
@@ -127,6 +129,7 @@ def _load_persisted_session_state() -> None:
     agent_result = st.session_state.get("agent_result") or {}
     if agent_result:
         st.session_state["daily_history"] = agent_result.get("daily_history", st.session_state.get("daily_history", []))
+    st.session_state["memory_store"] = _normalize_memory_store(st.session_state.get("memory_store"))
 
 
 def _save_persisted_session_state() -> None:
@@ -154,6 +157,183 @@ def _json_safe(value: Any) -> Any:
     if isinstance(value, tuple):
         return [_json_safe(item) for item in value]
     return value
+
+
+def _default_memory_store() -> dict[str, list[dict[str, Any]]]:
+    return {
+        "injury_events": [],
+        "food_preferences": [],
+        "training_preferences": [],
+        "plan_modification_logs": [],
+        "body_metrics": [],
+        "daily_feedback_records": [],
+    }
+
+
+def _normalize_memory_store(memory_store: Any) -> dict[str, list[dict[str, Any]]]:
+    normalized = _default_memory_store()
+    if not isinstance(memory_store, dict):
+        return normalized
+    for key in normalized:
+        value = memory_store.get(key, [])
+        normalized[key] = value if isinstance(value, list) else []
+    return normalized
+
+
+def _memory_store() -> dict[str, list[dict[str, Any]]]:
+    store = _normalize_memory_store(st.session_state.get("memory_store"))
+    st.session_state["memory_store"] = store
+    return store
+
+
+def _append_memory_item(collection: str, item: dict[str, Any], unique_key: str | None = None) -> None:
+    if not item:
+        return
+    store = _memory_store()
+    items = list(store.get(collection, []))
+    if unique_key and item.get(unique_key):
+        for index, existing in enumerate(items):
+            if existing.get(unique_key) == item.get(unique_key):
+                items[index] = item
+                store[collection] = items
+                st.session_state["memory_store"] = store
+                return
+    items.append(item)
+    store[collection] = items[-100:]
+    st.session_state["memory_store"] = store
+
+
+def _record_memory_plan_modification(
+    *,
+    date_iso: str,
+    action_type: str,
+    summary: str,
+    injury_areas: list[str] | None = None,
+) -> None:
+    _append_memory_item(
+        "plan_modification_logs",
+        {
+            "date": _safe_iso_date(date_iso) or date_iso,
+            "action_type": action_type,
+            "summary": summary,
+            "injury_areas": injury_areas or [],
+            "recorded_at": datetime.now().isoformat(timespec="seconds"),
+        },
+    )
+
+
+def _record_memory_injury_event(
+    *,
+    date_iso: str,
+    injury_areas: list[str],
+    source: str,
+    summary: str,
+    risk_level: str = "medium",
+) -> None:
+    safe_date = _safe_iso_date(date_iso) or date_iso
+    areas = injury_areas or ["reported injury area"]
+    for area in areas:
+        normalized_area = _normalize_loose(area) or "reportedinjuryarea"
+        _append_memory_item(
+            "injury_events",
+            {
+                "id": f"{safe_date}-{normalized_area}",
+                "date": safe_date,
+                "area": area,
+                "risk_level": risk_level,
+                "source": source,
+                "summary": summary,
+                "status": "active",
+                "expires_after_days": 7,
+                "recorded_at": datetime.now().isoformat(timespec="seconds"),
+            },
+            unique_key="id",
+        )
+
+
+def _record_memory_food_avoidance(*, date_iso: str, avoidances: list[str], scope: str) -> None:
+    for food in avoidances:
+        _append_memory_item(
+            "food_preferences",
+            {
+                "date": _safe_iso_date(date_iso) or date_iso,
+                "food": food,
+                "preference": "avoid",
+                "scope": scope,
+                "recorded_at": datetime.now().isoformat(timespec="seconds"),
+            },
+        )
+
+
+def _record_memory_daily_feedback(
+    *,
+    feedback_date: str,
+    daily_entry: dict[str, Any],
+    latest_feedback: dict[str, Any],
+) -> None:
+    _append_memory_item(
+        "daily_feedback_records",
+        {
+            "date": feedback_date,
+            "status": daily_entry.get("status", ""),
+            "plan_focus": daily_entry.get("plan_focus", ""),
+            "completed_actions": daily_entry.get("completed_actions", []),
+            "feeling": daily_entry.get("feedback", {}).get("workout_feeling", ""),
+            "emoji": daily_entry.get("feedback", {}).get("emoji", ""),
+            "injury_areas": daily_entry.get("feedback", {}).get("injury_areas", []),
+        },
+        unique_key="date",
+    )
+    _append_memory_item(
+        "body_metrics",
+        {
+            "date": feedback_date,
+            "weight_kg": daily_entry.get("weight_kg"),
+            "body_fat_pct": daily_entry.get("body_fat_pct"),
+        },
+        unique_key="date",
+    )
+    injury_areas = _coerce_string_list(daily_entry.get("feedback", {}).get("injury_areas"), [])
+    if injury_areas:
+        _record_memory_injury_event(
+            date_iso=feedback_date,
+            injury_areas=injury_areas,
+            source="daily_feedback",
+            summary=str(latest_feedback.get("performance_notes") or "Injury or pain was reported in daily feedback."),
+            risk_level="medium",
+        )
+
+
+def _memory_context_for_planning(target_date: str) -> dict[str, Any]:
+    store = _memory_store()
+    safe_target = _safe_iso_date(target_date) or date.today().isoformat()
+    active_injuries = [
+        injury
+        for injury in store.get("injury_events", [])
+        if _memory_injury_is_active(injury, safe_target)
+    ]
+    return {
+        "active_injuries": active_injuries,
+        "recent_food_preferences": store.get("food_preferences", [])[-10:],
+        "recent_training_preferences": store.get("training_preferences", [])[-10:],
+        "recent_plan_modifications": store.get("plan_modification_logs", [])[-12:],
+        "recent_daily_feedback": store.get("daily_feedback_records", [])[-14:],
+        "recent_body_metrics": store.get("body_metrics", [])[-14:],
+    }
+
+
+def _memory_injury_is_active(injury: dict[str, Any], target_date: str) -> bool:
+    if str(injury.get("status", "active")).lower() != "active":
+        return False
+    injury_date = _safe_iso_date(injury.get("date"))
+    if not injury_date:
+        return False
+    try:
+        days = (datetime.fromisoformat(target_date).date() - datetime.fromisoformat(injury_date).date()).days
+    except ValueError:
+        return False
+    expires_after = _clamp_int(injury.get("expires_after_days"), 1, 60, 7)
+    return 0 <= days <= expires_after
 
 
 def _apply_pending_date_picker() -> None:
@@ -407,6 +587,7 @@ def _reset_app_state() -> None:
     st.session_state["completed_training_days"] = []
     st.session_state["week_history"] = []
     st.session_state["daily_history"] = []
+    st.session_state["memory_store"] = _default_memory_store()
     st.session_state["assistant_chat_messages"] = []
     st.session_state["assistant_chat_open"] = False
     st.session_state["last_feedback_summary"] = ""
@@ -497,8 +678,9 @@ def _call_chat_assistant(user_message: str) -> str:
         "with a same-type alternative while preserving the day's focus, sets, and reps. "
         "When updating today's plan, follow the cycle-conflict policy: temporary add plus "
         "same-focus duplicate later in the same cycle turns that later duplicate into rest; "
-        "replacement plus same-focus duplicate swaps the two days' contents; cancellation only "
-        "affects today; temporary add without duplicate does not change other days. "
+        "replacement plus same-focus duplicate swaps the two days' contents; direct cancellation without "
+        "injury only affects today; injury cancellation may protect future same-cycle sessions that stress "
+        "the injured area; temporary add without duplicate does not change other days. "
         "Current app context:\n"
         f"{context}"
     )
@@ -524,46 +706,321 @@ def _maybe_update_today_from_chat(user_message: str) -> str:
     if not profile_inputs or not previous_result:
         return ""
 
-    replacement_summary = _maybe_replace_today_exercise_from_chat(user_message, previous_result)
-    if replacement_summary:
-        st.session_state["last_action_message"] = "Today's plan was updated by AI Coach."
-        return replacement_summary
+    orchestrator = CoachMultiAgentOrchestrator(
+        coordinator=CoachCoordinatorAgent(),
+        safety=CoachSafetyAgent(),
+        planner=CoachPlannerAgent(),
+        memory=CoachMemoryAgent(),
+    )
+    return orchestrator.handle(
+        user_message=user_message,
+        profile_inputs=profile_inputs,
+        previous_result=previous_result,
+    )
 
+
+class CoachMultiAgentOrchestrator:
+    """Coordinate the AI Coach agent team for one user message."""
+
+    def __init__(
+        self,
+        *,
+        coordinator: "CoachCoordinatorAgent",
+        safety: "CoachSafetyAgent",
+        planner: "CoachPlannerAgent",
+        memory: "CoachMemoryAgent",
+    ) -> None:
+        self.coordinator = coordinator
+        self.safety = safety
+        self.planner = planner
+        self.memory = memory
+
+    def handle(
+        self,
+        *,
+        user_message: str,
+        profile_inputs: dict[str, Any],
+        previous_result: FitnessAgentState | dict[str, Any],
+    ) -> str:
+        decision = self.coordinator.route(user_message)
+        route = str(decision.get("route", "none"))
+        if route == "none":
+            return ""
+
+        if route == "safety":
+            summary = self.safety.handle(decision, previous_result)
+            if summary:
+                self.memory.commit("Today's workout was cancelled by AI Coach.")
+            return summary
+
+        summary = self.planner.handle(
+            user_message=user_message,
+            profile_inputs=profile_inputs,
+            previous_result=previous_result,
+            decision=decision,
+        )
+        if summary:
+            self.memory.commit(str(decision.get("action_message", "Today's plan was updated by AI Coach.")))
+        return summary
+
+
+class CoachCoordinatorAgent:
+    """Classify user intent and route to the right specialist agent."""
+
+    def route(self, user_message: str) -> dict[str, Any]:
+        fallback = _fallback_coordinator_decision(user_message)
+        try:
+            routed = call_model_json(
+                system_prompt=load_prompt("coach_coordinator_prompt.txt"),
+                user_prompt=json.dumps(
+                    {
+                        "user_message": user_message,
+                        "app_context": _build_chat_context(st.session_state.get("agent_result", {})),
+                        "fallback_decision": fallback,
+                    },
+                    ensure_ascii=True,
+                    indent=2,
+                ),
+                temperature=0.0,
+                max_tokens=600,
+            )
+        except Exception:
+            return fallback
+        return _sanitize_coordinator_decision(routed, fallback)
+
+
+def _fallback_coordinator_decision(user_message: str) -> dict[str, Any]:
+    """Rule-backed routing used when the Coordinator Agent is uncertain."""
     normalized = _normalize_change_request(user_message)
     normalized = _augment_chat_safety_change(user_message, normalized)
     normalized = _augment_chat_intensity_change(user_message, normalized)
+    normalized = _augment_chat_food_change(user_message, normalized, st.session_state.get("agent_result", {}))
+    normalized = _augment_chat_focus_change(user_message, normalized)
+
+    if _coerce_string_list(normalized.get("temporary_food_avoidances"), []):
+        return {
+            "route": "planner",
+            "planner_action": "replace_food",
+            "normalized": normalized,
+            "action_message": "Today's nutrition was updated by AI Coach.",
+        }
+
+    if _chat_message_requests_exercise_replacement(user_message):
+        return {
+            "route": "planner",
+            "planner_action": "replace_exercise",
+            "normalized": normalized,
+            "action_message": "Today's plan was updated by AI Coach.",
+        }
+
     if not _chat_request_should_update_today(user_message, normalized):
-        return ""
+        return {"route": "none", "normalized": normalized}
 
-    cancel_summary = _maybe_cancel_today_from_chat(normalized, previous_result)
-    if cancel_summary:
-        st.session_state["last_action_message"] = "Today's workout was cancelled by AI Coach."
-        return cancel_summary
+    if normalized.get("cancel_today") or normalized.get("injury_reported"):
+        return {
+            "route": "safety",
+            "planner_action": "cancel_workout",
+            "normalized": normalized,
+        }
 
-    intensity_summary = _maybe_patch_today_intensity_from_chat(normalized, previous_result)
-    if intensity_summary:
-        st.session_state["last_action_message"] = "Today's plan was updated by AI Coach."
-        return intensity_summary
+    if str(normalized.get("intensity_adjustment", "")).strip():
+        return {
+            "route": "planner",
+            "planner_action": "adjust_intensity",
+            "normalized": normalized,
+            "action_message": "Today's plan was updated by AI Coach.",
+        }
 
-    nutrition_summary = _maybe_update_nutrition_from_chat(normalized, previous_result)
-    if nutrition_summary:
-        st.session_state["last_action_message"] = "Today's nutrition was updated by AI Coach."
-        return nutrition_summary
+    return {
+        "route": "planner",
+        "planner_action": "update_today_plan",
+        "normalized": normalized,
+        "action_message": "Today's plan was updated by AI Coach.",
+    }
 
-    updated_state = _build_change_request_state(
-        profile_inputs=profile_inputs,
-        previous_result=previous_result,
-        change_request=user_message,
-        normalized_change_request=normalized,
-    )
-    _execute_ai_plan_patch(updated_state, previous_result, normalized)
-    updated_result = st.session_state.get("agent_result", previous_result)
-    today_session = _select_today_session(
-        _sort_workout_sessions(updated_result.get("current_plan", {}).get("workout_sessions", [])),
-        _current_interaction_date(updated_result),
-    )
-    st.session_state["last_action_message"] = "Today's plan was updated by AI Coach."
-    return _summarize_session_for_chat(today_session)
+
+def _sanitize_coordinator_decision(routed: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
+    target_agent = str(routed.get("target_agent", "")).strip().lower()
+    planner_action = str(routed.get("planner_action", "")).strip().lower()
+    confidence = _clamp_float(routed.get("confidence"), 0.0, 1.0, 0.0)
+    route_map = {"none": "none", "safety": "safety", "planner": "planner"}
+    action_map = {
+        "none": "none",
+        "cancel_workout": "cancel_workout",
+        "adjust_intensity": "adjust_intensity",
+        "replace_exercise": "replace_exercise",
+        "replace_food": "replace_food",
+        "update_today_plan": "update_today_plan",
+    }
+    if target_agent not in route_map or planner_action not in action_map:
+        return fallback
+    if confidence < 0.45:
+        return fallback
+    if str(fallback.get("route", "none")) != "none" and target_agent == "none":
+        return fallback
+
+    sanitized = dict(fallback)
+    sanitized["route"] = route_map[target_agent]
+    sanitized["planner_action"] = action_map[planner_action]
+    sanitized["coordinator_reason"] = str(routed.get("reason", "")).strip()
+    sanitized["coordinator_confidence"] = confidence
+
+    if sanitized["route"] == "none":
+        sanitized["planner_action"] = "none"
+    elif sanitized["route"] == "safety":
+        sanitized["planner_action"] = "cancel_workout"
+    elif sanitized["planner_action"] == "none":
+        sanitized["planner_action"] = str(fallback.get("planner_action", "update_today_plan"))
+
+    if sanitized["planner_action"] == "replace_food":
+        sanitized["action_message"] = "Today's nutrition was updated by AI Coach."
+    elif sanitized["planner_action"] != "none":
+        sanitized["action_message"] = "Today's plan was updated by AI Coach."
+    return sanitized
+
+
+class CoachSafetyAgent:
+    """Apply hard safety decisions such as injury-triggered cancellation."""
+
+    def handle(
+        self,
+        decision: dict[str, Any],
+        previous_result: FitnessAgentState | dict[str, Any],
+    ) -> str:
+        normalized = dict(decision.get("normalized", {}))
+        try:
+            safety = call_model_json(
+                system_prompt=load_prompt("coach_safety_prompt.txt"),
+                user_prompt=json.dumps(
+                    {
+                        "decision": decision,
+                        "app_context": _build_chat_context(previous_result),
+                    },
+                    ensure_ascii=True,
+                    indent=2,
+                ),
+                temperature=0.0,
+                max_tokens=700,
+            )
+        except Exception:
+            safety = {}
+
+        if safety:
+            normalized["cancel_today"] = bool(normalized.get("cancel_today") or safety.get("requires_cancellation"))
+            normalized["injury_reported"] = bool(normalized.get("injury_reported") or safety.get("injury_reported"))
+            injury_areas = _coerce_string_list(safety.get("injury_areas"), [])
+            if injury_areas:
+                normalized["injury_areas"] = injury_areas
+            safety_notes = _coerce_string_list(safety.get("safety_notes"), [])
+            if safety_notes:
+                normalized["safety_notes"] = safety_notes
+        return _maybe_cancel_today_from_chat(
+            normalized,
+            previous_result,
+        )
+
+
+class CoachPlannerAgent:
+    """Modify workout or nutrition plans after Coordinator routing."""
+
+    def handle(
+        self,
+        *,
+        user_message: str,
+        profile_inputs: dict[str, Any],
+        previous_result: FitnessAgentState | dict[str, Any],
+        decision: dict[str, Any],
+    ) -> str:
+        normalized = dict(decision.get("normalized", {}))
+        action = str(decision.get("planner_action", ""))
+        planner_instruction = self._plan_tool(user_message, previous_result, decision)
+        tool_name = str(planner_instruction.get("tool_name", "")).strip().lower()
+
+        if tool_name in {"adjust_intensity", "replace_exercise", "replace_food", "update_today_plan"}:
+            action = tool_name
+        intensity = str(planner_instruction.get("arguments", {}).get("intensity", "")).strip().lower()
+        if intensity in {"higher", "lower"} and not str(normalized.get("intensity_adjustment", "")).strip():
+            normalized["intensity_adjustment"] = intensity
+
+        if action == "replace_exercise":
+            replacement_summary = _maybe_replace_today_exercise_from_chat(user_message, previous_result)
+            if replacement_summary:
+                return replacement_summary
+        if action == "adjust_intensity" or str(normalized.get("intensity_adjustment", "")).strip():
+            return _maybe_patch_today_intensity_from_chat(normalized, previous_result)
+        if action == "replace_food" or _coerce_string_list(normalized.get("temporary_food_avoidances"), []):
+            return _maybe_update_nutrition_from_chat(normalized, previous_result)
+
+        updated_state = _build_change_request_state(
+            profile_inputs=profile_inputs,
+            previous_result=previous_result,
+            change_request=user_message,
+            normalized_change_request=normalized,
+        )
+        _execute_ai_plan_patch(updated_state, previous_result, normalized)
+        updated_result = st.session_state.get("agent_result", previous_result)
+        today_session = _select_today_session(
+            _sort_workout_sessions(updated_result.get("current_plan", {}).get("workout_sessions", [])),
+            _current_interaction_date(updated_result),
+        )
+        return _summarize_session_for_chat(today_session)
+
+    def _plan_tool(
+        self,
+        user_message: str,
+        previous_result: FitnessAgentState | dict[str, Any],
+        decision: dict[str, Any],
+    ) -> dict[str, Any]:
+        try:
+            return call_model_json(
+                system_prompt=load_prompt("coach_planner_prompt.txt"),
+                user_prompt=json.dumps(
+                    {
+                        "user_message": user_message,
+                        "decision": decision,
+                        "app_context": _build_chat_context(previous_result),
+                    },
+                    ensure_ascii=True,
+                    indent=2,
+                ),
+                temperature=0.0,
+                max_tokens=700,
+            )
+        except Exception:
+            return {
+                "tool_name": str(decision.get("planner_action", "update_today_plan")),
+                "arguments": {},
+                "summary": "Fallback to coordinator-selected action.",
+                "confidence": 0.0,
+            }
+
+
+class CoachMemoryAgent:
+    """Persist AI Coach state updates and expose user-facing action status."""
+
+    def commit(self, action_message: str) -> None:
+        should_save = True
+        try:
+            memory_decision = call_model_json(
+                system_prompt=load_prompt("coach_memory_prompt.txt"),
+                user_prompt=json.dumps(
+                    {
+                        "action_message": action_message,
+                        "active_date": st.session_state.get("active_date"),
+                        "state_keys_available": PERSISTED_SESSION_KEYS,
+                    },
+                    ensure_ascii=True,
+                    indent=2,
+                ),
+                temperature=0.0,
+                max_tokens=400,
+            )
+            should_save = bool(memory_decision.get("should_save", True))
+        except Exception:
+            should_save = True
+        st.session_state["last_action_message"] = action_message
+        if should_save or action_message:
+            _save_persisted_session_state()
 
 
 def _maybe_cancel_today_from_chat(
@@ -611,13 +1068,104 @@ def _maybe_cancel_today_from_chat(
         today_session["injury_reported"] = injury_reported
         today_session["injury_areas"] = injury_areas
 
+    protected_future_sessions: list[str] = []
+    if injury_reported:
+        protected_future_sessions = _protect_future_sessions_for_injury(
+            updated_result=updated_result,
+            current_date=current_date,
+            injury_areas=injury_areas,
+        )
+        _record_memory_injury_event(
+            date_iso=current_date,
+            injury_areas=injury_areas,
+            source="ai_coach",
+            summary=f"User reported injury around {', '.join(injury_areas) if injury_areas else 'an unspecified area'}.",
+            risk_level="medium",
+        )
+    _record_memory_plan_modification(
+        date_iso=current_date,
+        action_type="cancel_workout" if not injury_reported else "injury_cancel_workout",
+        summary="Cancelled today's workout after AI Coach safety routing.",
+        injury_areas=injury_areas if injury_reported else [],
+    )
     _refresh_youtube_resources(updated_result)
     st.session_state["agent_result"] = updated_result
     _save_persisted_session_state()
     if injury_reported:
         area_text = f" around {', '.join(injury_areas)}" if injury_areas else ""
-        return f"Today's workout has been cancelled because you reported an injury{area_text}."
+        future_text = ""
+        if protected_future_sessions:
+            future_text = f" Related future sessions were protected: {', '.join(protected_future_sessions)}."
+        return f"Today's workout has been cancelled because you reported an injury{area_text}.{future_text}"
     return "Today's workout has been cancelled as requested. No injury reason was recorded."
+
+
+def _protect_future_sessions_for_injury(
+    *,
+    updated_result: FitnessAgentState | dict[str, Any],
+    current_date: str,
+    injury_areas: list[str],
+) -> list[str]:
+    current_plan = updated_result.get("current_plan", {})
+    sessions = _sort_workout_sessions(current_plan.get("workout_sessions", []))
+    current_cycle = _cycle_number_for_date(current_plan, current_date)
+    protected_labels: list[str] = []
+    for session in sessions:
+        session_date = _safe_iso_date(session.get("scheduled_date"))
+        if not session_date or session_date <= current_date:
+            continue
+        if session.get("cycle_number", current_cycle) != current_cycle:
+            continue
+        if session.get("is_cancelled"):
+            continue
+        if not _session_stresses_injury_area(session, injury_areas):
+            continue
+        session["is_cancelled"] = True
+        session["focus"] = "Recovery (injury protection)"
+        session["duration_minutes"] = 0
+        session["warmup"] = []
+        session["exercises"] = []
+        session["cooldown"] = []
+        session["injury_reported"] = True
+        session["injury_areas"] = injury_areas
+        session["safety_notes"] = [
+            f"Protected because a recent injury was reported around {', '.join(injury_areas)}.",
+            "Resume this focus only after later feedback indicates symptoms have improved.",
+        ]
+        protected_labels.append(f"{session_date} {session.get('day', '')}".strip())
+    return protected_labels
+
+
+def _cycle_number_for_date(current_plan: dict[str, Any], date_iso: str) -> int:
+    for session in current_plan.get("workout_sessions", []):
+        if _same_iso_date(session.get("scheduled_date"), date_iso):
+            return int(session.get("cycle_number") or current_plan.get("cycle_number") or 1)
+    return int(current_plan.get("cycle_number") or 1)
+
+
+def _session_stresses_injury_area(session: dict[str, Any], injury_areas: list[str]) -> bool:
+    session_text = " ".join(
+        [
+            str(session.get("focus", "")),
+            " ".join(str(exercise.get("name", "")) for exercise in session.get("exercises", [])),
+            " ".join(str(exercise.get("target_muscle", "")) for exercise in session.get("exercises", [])),
+        ]
+    ).lower()
+    stress_aliases = {
+        "back": ["back", "lat", "row", "pulldown", "deadlift", "hinge", "squat"],
+        "knee": ["lower body", "leg", "squat", "lunge", "knee", "glute"],
+        "shoulder": ["shoulder", "press", "chest", "push", "row"],
+        "ankle": ["lower body", "leg", "lunge", "squat", "jump", "conditioning"],
+        "hip": ["lower body", "leg", "glute", "squat", "lunge", "hinge"],
+        "wrist": ["push", "press", "curl", "row", "plank"],
+        "elbow": ["push", "press", "curl", "row"],
+    }
+    for area in injury_areas or ["reported injury area"]:
+        normalized_area = str(area).lower()
+        aliases = stress_aliases.get(normalized_area, [normalized_area])
+        if any(alias in session_text for alias in aliases):
+            return True
+    return False
 
 
 def _cancel_safety_notes(*, injury_reported: bool, injury_areas: list[str]) -> list[str]:
@@ -727,6 +1275,11 @@ def _maybe_patch_today_intensity_from_chat(
     today_session["exercises"] = updated_exercises
     _refresh_youtube_resources(updated_result)
     st.session_state["agent_result"] = updated_result
+    _record_memory_plan_modification(
+        date_iso=current_date,
+        action_type=f"{intensity}_intensity",
+        summary=f"Adjusted today's workout to {intensity} intensity.",
+    )
     _save_persisted_session_state()
 
     label = "lower" if intensity == "lower" else "higher"
@@ -794,6 +1347,12 @@ def _execute_ai_plan_patch(
 
     patched_result = _merge_ai_patch_result(previous_result, result, normalized)
     st.session_state["agent_result"] = patched_result
+    _record_memory_plan_modification(
+        date_iso=str(state.get("current_date", "")),
+        action_type="ai_plan_patch",
+        summary=str(normalized.get("summary") or state.get("plan_change_request") or "AI Coach updated today's plan."),
+        injury_areas=_coerce_string_list(normalized.get("injury_areas"), []),
+    )
     _save_persisted_session_state()
 
 
@@ -879,6 +1438,16 @@ def _maybe_update_nutrition_from_chat(
 
     current_plan["meal_suggestions"] = updated_meals
     st.session_state["agent_result"] = updated_result
+    _record_memory_food_avoidance(
+        date_iso=_current_interaction_date(previous_result),
+        avoidances=avoidances,
+        scope="today_only",
+    )
+    _record_memory_plan_modification(
+        date_iso=_current_interaction_date(previous_result),
+        action_type="replace_food",
+        summary=f"Replaced today's foods: {', '.join(old for old, _ in replacements)}.",
+    )
     _save_persisted_session_state()
     replacement_text = ", ".join(f"{old} -> {new}" for old, new in replacements)
     return f"Today's nutrition was updated: {replacement_text}. Your workout plan was left unchanged."
@@ -936,21 +1505,7 @@ def _extract_grams(serving_size: str, default: float) -> float:
 
 
 def _maybe_replace_today_exercise_from_chat(user_message: str, previous_result: FitnessAgentState | dict[str, Any]) -> str:
-    text = user_message.lower()
-    replacement_terms = [
-        "replace",
-        "swap",
-        "change",
-        "alternative",
-        "instead",
-        "换",
-        "替换",
-        "不要",
-        "不想做",
-        "换掉",
-        "改掉",
-    ]
-    if not any(term in text for term in replacement_terms):
+    if not _chat_message_requests_exercise_replacement(user_message):
         return ""
 
     current_date = _current_interaction_date(previous_result)
@@ -1010,6 +1565,11 @@ def _maybe_replace_today_exercise_from_chat(user_message: str, previous_result: 
         updated_today["exercises"] = updated_exercises
         _refresh_youtube_resources(updated_result)
         st.session_state["agent_result"] = updated_result
+        _record_memory_plan_modification(
+            date_iso=current_date,
+            action_type="replace_exercise",
+            summary="Replaced today's exercises with same-focus alternatives.",
+        )
         _save_persisted_session_state()
         replacement_text = ", ".join(f"{old} -> {new}" for old, new in replacements_made)
         return (
@@ -1037,12 +1597,35 @@ def _maybe_replace_today_exercise_from_chat(user_message: str, previous_result: 
     updated_today["exercises"] = updated_exercises
     _refresh_youtube_resources(updated_result)
     st.session_state["agent_result"] = updated_result
+    _record_memory_plan_modification(
+        date_iso=current_date,
+        action_type="replace_exercise",
+        summary=f"Replaced {original_name} with {replacement.get('name', '')}.",
+    )
     _save_persisted_session_state()
 
     return (
         f"Today's plan is now updated: replaced {original_name} with "
         f"{replacement.get('name', '')} while keeping the same focus, sets, and reps."
     )
+
+
+def _chat_message_requests_exercise_replacement(user_message: str) -> bool:
+    text = user_message.lower()
+    replacement_terms = [
+        "replace",
+        "swap",
+        "change",
+        "alternative",
+        "instead",
+        "换",
+        "替换",
+        "不要",
+        "不想做",
+        "换掉",
+        "改掉",
+    ]
+    return any(term in text for term in replacement_terms)
 
 
 def _chat_requests_general_exercise_replacement(user_message: str) -> bool:
@@ -1139,6 +1722,18 @@ def _normalize_loose(value: str) -> str:
     return "".join(character.lower() for character in value if character.isalnum())
 
 
+def _dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for value in values:
+        normalized = _normalize_loose(value)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(value)
+    return deduped
+
+
 def _chat_request_should_update_today(user_message: str, normalized: dict[str, Any]) -> bool:
     text = user_message.lower()
     update_terms = [
@@ -1193,6 +1788,147 @@ def _chat_request_should_update_today(user_message: str, normalized: dict[str, A
         "mixed_change",
         "recovery_change",
     }
+
+
+def _augment_chat_food_change(
+    user_message: str,
+    normalized: dict[str, Any],
+    result: FitnessAgentState | dict[str, Any],
+) -> dict[str, Any]:
+    if _coerce_string_list(normalized.get("temporary_food_avoidances"), []):
+        return normalized
+
+    avoidances = _food_avoidances_from_chat_text(user_message, result)
+    if not avoidances:
+        return normalized
+
+    augmented = dict(normalized)
+    augmented["request_type"] = "nutrition_change"
+    augmented["scope"] = "today_only"
+    augmented["temporary_food_avoidances"] = avoidances
+    summary = f"User wants to avoid {', '.join(avoidances)} today."
+    augmented["summary"] = " ".join(part for part in [str(augmented.get("summary", "")).strip(), summary] if part)
+    augmented["confidence"] = max(float(augmented.get("confidence") or 0.0), 0.85)
+    return augmented
+
+
+def _food_avoidances_from_chat_text(
+    user_message: str,
+    result: FitnessAgentState | dict[str, Any],
+) -> list[str]:
+    text = user_message.lower()
+    loose_text = _normalize_loose(user_message)
+    food_change_terms = [
+        "don't want",
+        "dont want",
+        "do not want",
+        "not want",
+        "avoid",
+        "no ",
+        "replace",
+        "swap",
+        "instead of",
+        "no broccoli",
+        "no salmon",
+        "不想吃",
+        "不要吃",
+        "不吃",
+        "换掉",
+        "替换",
+    ]
+    if not any(term in text for term in food_change_terms):
+        return []
+
+    current_plan = result.get("current_plan", {}) if result else {}
+    current_food_names = [
+        str(meal.get("food_name", "")).strip()
+        for meal in current_plan.get("meal_suggestions", [])
+        if str(meal.get("food_name", "")).strip()
+    ]
+
+    matched: list[str] = []
+    for food_name in current_food_names:
+        loose_food = _normalize_loose(food_name)
+        first_word = _normalize_loose(food_name.split(",", 1)[0].split("(", 1)[0])
+        if loose_food and loose_food in loose_text:
+            matched.append(food_name)
+        elif first_word and first_word in loose_text:
+            matched.append(food_name)
+
+    if matched:
+        return _dedupe_preserve_order(matched)
+
+    known_food_terms = [
+        "broccoli",
+        "salmon",
+        "chicken",
+        "rice",
+        "yogurt",
+        "egg",
+        "beef",
+        "tofu",
+        "oats",
+        "banana",
+    ]
+    return [food for food in known_food_terms if food in text]
+
+
+def _augment_chat_focus_change(user_message: str, normalized: dict[str, Any]) -> dict[str, Any]:
+    if normalized.get("focus_category") or normalized.get("injury_reported") or normalized.get("cancel_today"):
+        return normalized
+
+    focus_category = _focus_category_from_chat_text(user_message)
+    if not focus_category:
+        return normalized
+
+    augmented = dict(normalized)
+    augmented["request_type"] = "workout_change"
+    augmented["scope"] = "today_only"
+    augmented["focus_category"] = focus_category
+    summary = f"User asked to train focus category={focus_category} today."
+    augmented["summary"] = " ".join(part for part in [str(augmented.get("summary", "")).strip(), summary] if part)
+    augmented["confidence"] = max(float(augmented.get("confidence") or 0.0), 0.85)
+    return augmented
+
+
+def _focus_category_from_chat_text(user_message: str) -> str:
+    text = user_message.lower()
+    if _injury_areas_from_chat_text(user_message):
+        return ""
+
+    action_terms = [
+        "do",
+        "train",
+        "workout",
+        "add",
+        "switch",
+        "change",
+        "focus",
+        "i want",
+        "can i",
+        "could i",
+        "练",
+        "训练",
+        "加练",
+        "换成",
+        "改成",
+    ]
+    if not any(term in text for term in action_terms):
+        return ""
+
+    focus_aliases = [
+        ("upper_shoulders", ["shoulder", "shoulders", "delts", "肩"]),
+        ("back_training", ["back training", "train back", "work back", "lats", "row", "背"]),
+        ("lower_legs_glutes", ["lower body", "legs", "leg", "glutes", "glute", "squat", "腿", "臀"]),
+        ("functional_core", ["core", "abs", "腹", "核心"]),
+        ("functional_power", ["power", "explosive", "爆发"]),
+        ("functional_conditioning", ["conditioning", "cardio", "functional", "体能", "功能性", "调节"]),
+        ("upper_chest_arms", ["chest", "arms", "biceps", "triceps", "push", "胸", "手臂", "二头", "三头"]),
+    ]
+    for category, aliases in focus_aliases:
+        if any(alias in text for alias in aliases):
+            return category
+    return ""
 
 
 def _augment_chat_intensity_change(user_message: str, normalized: dict[str, Any]) -> dict[str, Any]:
@@ -1661,6 +2397,7 @@ def _generate_next_cycle_after_feedback(
         "daily_history": previous_result.get("daily_history", []),
         "feedback_history": previous_result.get("feedback_history", []),
         "state_history": previous_result.get("state_history", []),
+        "memory_context": _memory_context_for_planning(target_date),
     }
     try:
         next_result = run_agent(rollover_state)
@@ -1742,6 +2479,11 @@ def _record_daily_feedback_and_advance(
         previous_result.get("daily_history", []),
         daily_entry,
         "date",
+    )
+    _record_memory_daily_feedback(
+        feedback_date=feedback_date,
+        daily_entry=daily_entry,
+        latest_feedback=latest_feedback,
     )
     return updated_result
 
@@ -1984,6 +2726,7 @@ def _build_initial_state(profile_inputs: dict[str, Any]) -> FitnessAgentState:
         },
         "latest_feedback": {},
         "daily_history": [],
+        "memory_context": _memory_context_for_planning(target_date),
     }
 
 
@@ -2037,6 +2780,7 @@ def _build_change_request_state(
             previous_result.get("current_state", {}),
             "date",
         ),
+        "memory_context": _memory_context_for_planning(target_date),
     }
 
 
@@ -2130,6 +2874,7 @@ def _build_feedback_update_state(
             previous_result.get("current_state", {}),
             "date",
         ),
+        "memory_context": _memory_context_for_planning(target_date),
     }
 
 

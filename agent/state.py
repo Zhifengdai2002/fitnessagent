@@ -257,6 +257,7 @@ class FitnessAgentState(TypedDict, total=False):
     current_state: UserStateSnapshot
     latest_feedback: UserFeedback
     current_plan: FitnessPlan
+    memory_context: dict
 
     # Historical memory.
     state_history: list[UserStateSnapshot]
@@ -290,6 +291,7 @@ def create_initial_state() -> FitnessAgentState:
         "current_state": {},
         "latest_feedback": {},
         "current_plan": {},
+        "memory_context": {},
         "state_history": [],
         "feedback_history": [],
         "plan_history": [],
