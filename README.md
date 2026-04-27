@@ -22,18 +22,6 @@ The goal is not just to generate a static workout schedule, but to build a coach
 - Generates a new cycle when the current 7-day cycle ends.
 - Persists current state and memory with MySQL, with local JSON fallback.
 
-## AI Coach Behavior
-
-The AI Coach combines LLM reasoning with controlled tool-like actions. The LLM interprets what the user wants, while backend logic applies bounded updates to avoid accidental plan rewrites.
-
-Examples:
-
-- If the user says "add sets", the coach changes sets only, without adding exercises.
-- If the user says "I feel strong and want more", the coach can increase reps, notes, or add an exercise.
-- If the user says "I slept badly", the coach lowers intensity.
-- If the user says "replace broccoli", nutrition changes while the workout stays unchanged.
-- If the user reports injury or pain, safety rules can cancel today's workout and protect related future sessions.
-
 ## Multi-Agent Design
 
 FitnessAgent uses a multi-agent workflow around planning and coaching:
