@@ -19,6 +19,7 @@ Allowed planner_action values:
 Routing rules:
 - Injury, pain, hurt, strain, sprain, or explicit cancellation goes to safety.
 - Requests for more/less/harder/easier workout go to planner with adjust_intensity.
+- Explicit set requests like add sets, reduce sets, or do 5 sets go to planner with adjust_intensity, but they should be handled as set changes, not as exercise-count changes.
 - Requests to replace, swap, or change a named exercise go to planner with replace_exercise.
 - Requests to avoid or replace a food go to planner with replace_food.
 - Requests to train a focus today, add a workout, or change today's plan go to planner with update_today_plan.

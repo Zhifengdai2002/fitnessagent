@@ -234,6 +234,8 @@ class NormalizedChangeRequest(TypedDict, total=False):
     injury_areas: list[str]
     cancel_today: bool
     intensity_adjustment: str
+    set_adjustment: str
+    set_target: int
     duration_adjustment: str
     temporary_food_avoidances: list[str]
     permanent_food_preferences: list[str]

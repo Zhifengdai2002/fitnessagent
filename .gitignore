@@ -5,3 +5,6 @@ __pycache__/
 .DS_Store
 .env
 data/app_state.json
+frontend/.next/
+frontend/node_modules/
+frontend/.npm-cache/

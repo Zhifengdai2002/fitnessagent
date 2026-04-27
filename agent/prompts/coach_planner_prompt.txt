@@ -13,16 +13,19 @@ Allowed tool_name values:
 Rules:
 - More/harder/energized/too easy means adjust_intensity with intensity higher.
 - Tired/slept badly/low energy/hard means adjust_intensity with intensity lower.
+- Explicit set requests like add sets, one more set, fewer sets, reduce sets, or 5 sets still use adjust_intensity, but the argument should describe the set change rather than generic higher/lower intensity.
 - Replace/swap/change a named exercise means replace_exercise.
 - Avoid/replace a food means replace_food.
 - Add/change today's training focus means update_today_plan.
-- Preserve FitnessAgent hard rules: 4 sets per exercise; beginner baseline 2 exercises with 6-10 reps; intermediate 3 and advanced 4 exercises with 10-15 reps.
+- Preserve FitnessAgent base rules: default 4 sets per exercise; explicit set changes may temporarily use 3-5 sets without changing exercise count. Beginner baseline is 2 exercises with 6-10 reps; intermediate 3 and advanced 4 exercises with 10-15 reps.
 
 Schema:
 {
   "tool_name": "adjust_intensity|replace_exercise|replace_food|update_today_plan|no_action",
   "arguments": {
     "intensity": "higher|lower|",
+    "set_adjustment": "increase|decrease|target|",
+    "set_target": 0,
     "target": "",
     "replacement_preference": ""
   },

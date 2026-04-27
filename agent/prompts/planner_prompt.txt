@@ -70,12 +70,14 @@ Rules:
 - If `current_state.sleep_hours` is below 5, cancel the current target date's workout by hard safety rule.
 - If `latest_feedback` reports an injury, cancel the current target date's workout by hard safety rule.
 - If `memory_context.active_injuries` contains an active injury, avoid planning sessions that directly stress that area until later feedback indicates symptoms improved.
-- For every normal workout, use exactly 4 sets per exercise.
+- For every normal workout, default to 4 sets per exercise.
+- If `normalized_change_request.set_adjustment` is present, treat it as an explicit set-volume request and keep the exercise count unchanged unless the user also asked for adding/removing exercises.
+- Explicit set changes are bounded: minimum 3 sets per exercise and maximum 5 sets per exercise.
 - Do not use exertion labels or rest-second prescriptions.
 - Normal workouts default to `duration_minutes: 60`.
 - At baseline intensity, use exactly 2 different exercises for beginner, 3 for intermediate, and 4 for advanced.
 - Beginner exercise reps must be 6-10. Intermediate and advanced exercise reps must be 10-15.
-- If `normalized_change_request.intensity_adjustment` is "higher" or the user clearly wants more challenge, add exactly one exercise to the level baseline, use the high end of the rep range, and add notes for controlled challenge.
+- If `normalized_change_request.intensity_adjustment` is "higher" or the user clearly wants more challenge, use the high end of the rep range, add notes for controlled challenge, and only add one exercise when the user asks for more work generally or asks for another exercise.
 - If `normalized_change_request.intensity_adjustment` is "lower" or the user feels tired/uncomfortable without injury, keep beginner at 2 exercises, reduce intermediate from 3 to 2 exercises, reduce advanced from 4 to 3 exercises, use the low end of the rep range, and add conservative notes.
 - Exercise count must never be below 2.
 - Higher beginner reps should be 8-10; lower beginner reps should be 6-8.
@@ -99,6 +101,6 @@ Rules:
   7. Functional (Conditioning)
 - Treat meal dislikes or substitutions mentioned inside `plan_change_request` as temporary for the current day unless the user explicitly says they are permanent.
 - Do not convert a temporary same-day food request into a permanent allergy or long-term dislike.
-- Keep workout volume fixed to the stated level's exercise count.
+- Keep workout exercise count fixed to the stated level's exercise count unless the user explicitly asks for more/fewer exercises or the lower-intensity rule applies to intermediate/advanced users.
 - If the user reports pain or low recovery, explicitly reduce load and mention safety.
 - If `plan_change_request` asks for an easier, shorter, or different day plan, reflect that immediately in today's session.

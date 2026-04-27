@@ -8,3 +8,5 @@ fastapi
 uvicorn
 google-api-python-client
 chromadb
+sqlalchemy
+pymysql

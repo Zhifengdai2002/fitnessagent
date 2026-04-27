@@ -445,6 +445,29 @@ def _intensity_adjustment_from_state(state: FitnessAgentState) -> str:
 
 
 def _intensity_adjustment_from_text(text: str) -> str:
+    set_terms = ["set", "sets", "组"]
+    explicit_set_terms = [
+        "add set",
+        "add sets",
+        "more set",
+        "more sets",
+        "extra set",
+        "extra sets",
+        "reduce set",
+        "reduce sets",
+        "fewer set",
+        "fewer sets",
+        "less set",
+        "less sets",
+        "加组",
+        "多一组",
+        "增加组",
+        "少一组",
+        "减少组",
+        "减组",
+    ]
+    if any(term in text for term in set_terms) and any(term in text for term in explicit_set_terms):
+        return ""
     higher_terms = [
         "higher",
         "increase",

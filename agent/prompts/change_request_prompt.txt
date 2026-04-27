@@ -45,6 +45,8 @@ Output JSON schema:
   "injury_areas": [],
   "cancel_today": false,
   "intensity_adjustment": "",
+  "set_adjustment": "",
+  "set_target": 0,
   "duration_adjustment": "",
   "temporary_food_avoidances": ["salmon"],
   "permanent_food_preferences": [],
@@ -67,9 +69,13 @@ Rules:
 - If the user says "switch", "replace", "swap", "instead", "换成", "改成", or "更换", describe it in `summary` as a replacement.
 - Temporary adds may create an extra same-day session; replacements mean today's planned slot changes content.
 - Same-focus exercise replacements mean one exercise changes while today's workout focus, sets, and reps stay the same.
+- If the user explicitly asks to add sets, more sets, one more set, reduce sets, fewer sets, or a specific number of sets, use `set_adjustment` instead of treating it as generic intensity.
+- Allowed `set_adjustment` values are "increase", "decrease", "target", or "".
+- If the user asks for a specific set count, set `set_adjustment` to "target" and put that number in `set_target`.
+- Explicit set changes should keep today's exercise count unchanged unless the user separately asks to add/remove exercises.
 - If the user says they feel bad, tired, uncomfortable, under-recovered, low-energy, slept badly, overwhelmed, or wants an easier/lighter/shorter workout, set `intensity_adjustment` to "lower".
 - If the user says they feel excited, good, strong, energetic, the plan is too easy, asks to add one exercise/action/movement, or wants more challenge, set `intensity_adjustment` to "higher".
 - If the user does not clearly express lower or higher readiness, return an empty string for `intensity_adjustment`.
-- Intensity changes are bounded by planner rules: higher may add one exercise plus higher reps/notes; lower may reduce reps/notes and only intermediate/advanced users lose one exercise.
+- Intensity changes are bounded by planner rules: vague higher intensity may raise reps/notes and may add one exercise; vague lower intensity may reduce reps/notes and only intermediate/advanced users lose one exercise. Explicit set changes are separate and bounded to 3-5 sets.
 - Use `today_only` unless the user clearly asks for a future or permanent change.
 - `confidence` must be a number from 0.0 to 1.0.
