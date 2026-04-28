@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Any
 
 from agent.graph import run_agent
-from agent.llm import call_model_json, call_model_text, load_prompt
+from agent.llm import call_model_json, call_model_text, call_model_tool, load_prompt
 from agent.services.memory import append_memory_item, default_memory_store, normalize_memory_store
 from agent.services.persistence import PERSISTED_SESSION_KEYS, safe_iso_date
 from agent.services.planning_helpers import (
@@ -41,6 +41,163 @@ ALLOWED_FOCUS_CATEGORIES = {
     "functional_conditioning",
 }
 
+ALLOWED_COACH_TOOLS = {
+    "no_action",
+    "cancel_workout",
+    "adjust_sets",
+    "adjust_intensity",
+    "replace_exercise",
+    "replace_food",
+    "update_today_plan",
+}
+
+COACH_TOOL_SCHEMAS = [
+    {
+        "tool_name": "cancel_workout",
+        "description": "Cancel today's workout because the user requested cancellation or reported injury/pain.",
+        "arguments": {"injury_reported": "bool", "injury_areas": "list[str]", "reason": "string"},
+    },
+    {
+        "tool_name": "adjust_sets",
+        "description": "Adjust today's set count only. Does not add or remove exercises.",
+        "arguments": {"set_adjustment": "increase|decrease|target", "set_target": "int, optional"},
+    },
+    {
+        "tool_name": "adjust_intensity",
+        "description": "Adjust reps, notes, and possibly exercise count for vague higher/lower intensity requests.",
+        "arguments": {"intensity_adjustment": "higher|lower"},
+    },
+    {
+        "tool_name": "replace_exercise",
+        "description": "Replace one or more exercises with same-focus alternatives.",
+        "arguments": {"target": "string, optional", "replacement_preference": "string, optional"},
+    },
+    {
+        "tool_name": "replace_food",
+        "description": "Replace today's food items while preserving the workout plan.",
+        "arguments": {"temporary_food_avoidances": "list[str]"},
+    },
+    {
+        "tool_name": "update_today_plan",
+        "description": "Use the planner workflow to update today's workout focus or broader same-day plan.",
+        "arguments": {"focus_category": "string, optional", "summary": "string, optional"},
+    },
+    {
+        "tool_name": "no_action",
+        "description": "No app state change is needed.",
+        "arguments": {},
+    },
+]
+
+COACH_NATIVE_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "cancel_workout",
+            "description": "Cancel today's workout because the user requested cancellation or reported injury/pain.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "injury_reported": {"type": "boolean"},
+                    "injury_areas": {"type": "array", "items": {"type": "string"}},
+                    "reason": {"type": "string"},
+                    "summary": {"type": "string"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "adjust_sets",
+            "description": "Adjust today's set count only. Do not add or remove exercises.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "set_adjustment": {"type": "string", "enum": ["increase", "decrease", "target"]},
+                    "set_target": {"type": "integer", "minimum": 0, "maximum": 12},
+                    "summary": {"type": "string"},
+                },
+                "required": ["set_adjustment"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "adjust_intensity",
+            "description": "Adjust reps, notes, and possibly exercise count for vague higher/lower intensity requests.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "intensity_adjustment": {"type": "string", "enum": ["higher", "lower"]},
+                    "summary": {"type": "string"},
+                },
+                "required": ["intensity_adjustment"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "replace_exercise",
+            "description": "Replace one or more exercises with same-focus alternatives.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target": {"type": "string"},
+                    "replacement_preference": {"type": "string"},
+                    "summary": {"type": "string"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "replace_food",
+            "description": "Replace today's food items while preserving the workout plan.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "temporary_food_avoidances": {"type": "array", "items": {"type": "string"}},
+                    "summary": {"type": "string"},
+                },
+                "required": ["temporary_food_avoidances"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_today_plan",
+            "description": "Use the planner workflow to update today's workout focus or broader same-day plan.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "focus_category": {
+                        "type": "string",
+                        "enum": [
+                            "",
+                            "upper_chest_arms",
+                            "upper_shoulders",
+                            "back_training",
+                            "lower_legs_glutes",
+                            "functional_core",
+                            "functional_power",
+                            "functional_conditioning",
+                        ],
+                    },
+                    "summary": {"type": "string"},
+                },
+                "required": [],
+            },
+        },
+    },
+]
+
 
 def call_chat_assistant(user_message: str, session_state: dict[str, Any]) -> str:
     update_summary = maybe_update_today_from_chat(user_message, session_state)
@@ -56,7 +213,8 @@ def call_chat_assistant(user_message: str, session_state: dict[str, Any]) -> str
         "base every workout answer on FitnessAgent's hard planning rules: baseline beginner plans "
         "use 2 exercises, intermediate plans use 3 exercises, advanced plans use 4 exercises; default "
         "normal exercise volume is 4 sets. If the user explicitly asks to add/reduce sets, change sets "
-        "only within 3-5 sets and do not add exercises. For vague higher intensity, use higher reps "
+        "only within 3-5 sets and do not add exercises. Once changed, today's set target persists across "
+        "later same-day workout edits until the user changes sets again. For vague higher intensity, use higher reps "
         "(beginner 8-10, intermediate/advanced 12-15), challenge notes, and only add an exercise when "
         "the user asks for more work generally. For lower intensity, "
         "never go below 2 exercises, keep beginner at 2, reduce intermediate to 2, reduce advanced "
@@ -92,38 +250,220 @@ def maybe_update_today_from_chat(user_message: str, session_state: dict[str, Any
         return ""
 
     decision = route_coach_message(user_message, previous_result, session_state)
+    tool_call = select_coach_tool_call(user_message, previous_result, session_state, decision)
+    if tool_call.get("tool_name") == "no_action":
+        return ""
+
+    summary = execute_coach_tool_call(
+        tool_call,
+        {
+            "user_message": user_message,
+            "profile_inputs": profile_inputs,
+            "previous_result": previous_result,
+            "session_state": session_state,
+            "decision": decision,
+        },
+    )
+
+    if summary:
+        commit_memory(session_state, action_message_for_tool_call(tool_call, decision))
+    return summary
+
+
+def select_coach_tool_call(
+    user_message: str,
+    result: FitnessAgentState | dict[str, Any],
+    session_state: dict[str, Any],
+    decision: dict[str, Any],
+) -> dict[str, Any]:
+    fallback = fallback_tool_call_from_decision(decision)
+    if fallback.get("tool_name") == "no_action":
+        return fallback
+    user_payload = json.dumps(
+        {
+            "user_message": user_message,
+            "app_context": build_chat_context(result, session_state),
+            "coordinator_decision": decision,
+            "fallback_tool_call": fallback,
+        },
+        ensure_ascii=True,
+        indent=2,
+    )
+    try:
+        planned = call_model_tool(
+            system_prompt=load_prompt("coach_planner_prompt.txt"),
+            user_prompt=user_payload,
+            tools=COACH_NATIVE_TOOLS,
+            tool_choice="auto",
+            temperature=0.0,
+            max_tokens=700,
+        )
+    except Exception:
+        try:
+            planned = call_model_json(
+                system_prompt=load_prompt("coach_planner_prompt.txt"),
+                user_prompt=json.dumps(
+                    {
+                        "user_message": user_message,
+                        "app_context": build_chat_context(result, session_state),
+                        "coordinator_decision": decision,
+                        "available_tools": COACH_TOOL_SCHEMAS,
+                        "fallback_tool_call": fallback,
+                    },
+                    ensure_ascii=True,
+                    indent=2,
+                ),
+                temperature=0.0,
+                max_tokens=700,
+            )
+        except Exception:
+            return fallback
+    return sanitize_tool_call(planned, fallback)
+
+
+def execute_coach_tool_call(tool_call: dict[str, Any], context: dict[str, Any]) -> str:
+    tool_name = str(tool_call.get("tool_name", "no_action")).strip()
+    tool = coach_tool_registry().get(tool_name)
+    if not tool:
+        return ""
+    return str(tool["handler"](context, dict(tool_call.get("arguments", {}))) or "")
+
+
+def coach_tool_registry() -> dict[str, dict[str, Any]]:
+    return {
+        "no_action": {
+            "description": "No app state change.",
+            "handler": handle_no_action_tool,
+        },
+        "cancel_workout": {
+            "description": "Cancel today's workout.",
+            "handler": handle_cancel_workout_tool,
+        },
+        "adjust_sets": {
+            "description": "Adjust today's set policy.",
+            "handler": handle_adjust_sets_tool,
+        },
+        "adjust_intensity": {
+            "description": "Adjust today's intensity.",
+            "handler": handle_adjust_intensity_tool,
+        },
+        "replace_exercise": {
+            "description": "Replace same-focus exercises.",
+            "handler": handle_replace_exercise_tool,
+        },
+        "replace_food": {
+            "description": "Replace today's food.",
+            "handler": handle_replace_food_tool,
+        },
+        "update_today_plan": {
+            "description": "Patch today's workout plan.",
+            "handler": handle_update_today_plan_tool,
+        },
+    }
+
+
+def fallback_tool_call_from_decision(decision: dict[str, Any]) -> dict[str, Any]:
     route = str(decision.get("route", "none"))
     normalized = dict(decision.get("normalized", {}))
     action = str(decision.get("planner_action", ""))
-
     if route == "none":
-        return ""
+        return {"tool_name": "no_action", "arguments": {}, "source": "fallback"}
     if route == "safety" or normalized.get("cancel_today") or normalized.get("injury_reported"):
-        summary = cancel_today_from_chat(normalized, previous_result, session_state)
-        if summary:
-            commit_memory(session_state, "Today's workout was cancelled by AI Coach.")
-        return summary
-
+        return {"tool_name": "cancel_workout", "arguments": normalized, "source": "fallback"}
     if action == "replace_exercise":
-        summary = replace_today_exercise_from_chat(user_message, previous_result, session_state)
-    elif str(normalized.get("set_adjustment", "")).strip():
-        summary = patch_today_sets_from_chat(normalized, previous_result, session_state)
-    elif action == "adjust_intensity" or str(normalized.get("intensity_adjustment", "")).strip():
-        summary = patch_today_intensity_from_chat(normalized, previous_result, session_state)
-    elif action == "replace_food" or coerce_string_list(normalized.get("temporary_food_avoidances"), []):
-        summary = update_nutrition_from_chat(normalized, previous_result, session_state)
-    else:
-        summary = execute_ai_plan_patch(
-            user_message=user_message,
-            profile_inputs=profile_inputs,
-            previous_result=previous_result,
-            normalized=normalized,
-            session_state=session_state,
-        )
+        return {"tool_name": "replace_exercise", "arguments": normalized, "source": "fallback"}
+    if str(normalized.get("set_adjustment", "")).strip():
+        return {"tool_name": "adjust_sets", "arguments": normalized, "source": "fallback"}
+    if action == "adjust_intensity" or str(normalized.get("intensity_adjustment", "")).strip():
+        return {"tool_name": "adjust_intensity", "arguments": normalized, "source": "fallback"}
+    if action == "replace_food" or coerce_string_list(normalized.get("temporary_food_avoidances"), []):
+        return {"tool_name": "replace_food", "arguments": normalized, "source": "fallback"}
+    return {"tool_name": "update_today_plan", "arguments": normalized, "source": "fallback"}
 
-    if summary:
-        commit_memory(session_state, str(decision.get("action_message", "Today's plan was updated by AI Coach.")))
-    return summary
+
+def sanitize_tool_call(planned: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(planned, dict):
+        return fallback
+    tool_name = str(planned.get("tool_name", "")).strip()
+    if tool_name not in ALLOWED_COACH_TOOLS:
+        return fallback
+    if str(fallback.get("tool_name", "no_action")) != "no_action" and tool_name == "no_action":
+        return fallback
+    confidence = clamp_float(planned.get("confidence"), 0.0, 1.0, 0.0)
+    if confidence < 0.45:
+        return fallback
+    arguments = dict(fallback.get("arguments", {}))
+    planned_arguments = planned.get("arguments", {})
+    if isinstance(planned_arguments, dict):
+        arguments.update(planned_arguments)
+    return {
+        "tool_name": tool_name,
+        "arguments": sanitize_tool_arguments(tool_name, arguments),
+        "reason": str(planned.get("summary") or planned.get("reason") or "").strip(),
+        "confidence": confidence,
+        "source": "planner_agent",
+    }
+
+
+def sanitize_tool_arguments(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    sanitized = sanitize_normalized_change_request(arguments)
+    if tool_name == "adjust_sets":
+        set_adjustment = str(arguments.get("set_adjustment") or sanitized.get("set_adjustment") or "").strip()
+        if set_adjustment not in {"increase", "decrease", "target"}:
+            set_adjustment = ""
+        sanitized["set_adjustment"] = set_adjustment
+        sanitized["set_target"] = clamp_int(arguments.get("set_target") or sanitized.get("set_target"), 0, 12, 0)
+        sanitized["intensity_adjustment"] = ""
+    elif tool_name == "adjust_intensity":
+        intensity = str(arguments.get("intensity_adjustment") or arguments.get("intensity") or sanitized.get("intensity_adjustment") or "").strip()
+        sanitized["intensity_adjustment"] = intensity if intensity in {"higher", "lower"} else ""
+        sanitized["set_adjustment"] = ""
+    elif tool_name == "cancel_workout":
+        sanitized["cancel_today"] = True
+    return sanitized
+
+
+def action_message_for_tool_call(tool_call: dict[str, Any], decision: dict[str, Any]) -> str:
+    tool_name = str(tool_call.get("tool_name", ""))
+    if tool_name == "cancel_workout":
+        return "Today's workout was cancelled by AI Coach."
+    if tool_name == "replace_food":
+        return "Today's nutrition was updated by AI Coach."
+    return str(decision.get("action_message", "Today's plan was updated by AI Coach."))
+
+
+def handle_no_action_tool(context: dict[str, Any], arguments: dict[str, Any]) -> str:
+    return ""
+
+
+def handle_cancel_workout_tool(context: dict[str, Any], arguments: dict[str, Any]) -> str:
+    return cancel_today_from_chat(arguments, context["previous_result"], context["session_state"])
+
+
+def handle_adjust_sets_tool(context: dict[str, Any], arguments: dict[str, Any]) -> str:
+    return patch_today_sets_from_chat(arguments, context["previous_result"], context["session_state"])
+
+
+def handle_adjust_intensity_tool(context: dict[str, Any], arguments: dict[str, Any]) -> str:
+    return patch_today_intensity_from_chat(arguments, context["previous_result"], context["session_state"])
+
+
+def handle_replace_exercise_tool(context: dict[str, Any], arguments: dict[str, Any]) -> str:
+    return replace_today_exercise_from_chat(context["user_message"], context["previous_result"], context["session_state"])
+
+
+def handle_replace_food_tool(context: dict[str, Any], arguments: dict[str, Any]) -> str:
+    return update_nutrition_from_chat(arguments, context["previous_result"], context["session_state"])
+
+
+def handle_update_today_plan_tool(context: dict[str, Any], arguments: dict[str, Any]) -> str:
+    return execute_ai_plan_patch(
+        user_message=context["user_message"],
+        profile_inputs=context["profile_inputs"],
+        previous_result=context["previous_result"],
+        normalized=arguments,
+        session_state=context["session_state"],
+    )
 
 
 def route_coach_message(user_message: str, result: FitnessAgentState | dict[str, Any], session_state: dict[str, Any]) -> dict[str, Any]:
@@ -670,6 +1010,14 @@ def merge_ai_patch_result(
     elif nutrition_changed and not workout_changed and previous_plan:
         result_plan["workout_sessions"] = deepcopy(previous_plan.get("workout_sessions", result_plan.get("workout_sessions", [])))
 
+    if workout_changed and previous_plan and not str(normalized.get("set_adjustment", "")).strip():
+        target_date = str(result.get("current_date") or previous_result.get("current_date") or "")
+        previous_today = select_today_session(sort_workout_sessions(previous_plan.get("workout_sessions", [])), target_date)
+        result_today = select_today_session(sort_workout_sessions(result_plan.get("workout_sessions", [])), target_date)
+        previous_set_policy = set_policy_from_session(previous_today)
+        if result_today and previous_set_policy != 4:
+            apply_set_policy_to_session(result_today, previous_set_policy)
+
     if previous_plan:
         for key in ["summary", "objective_alignment", "coaching_focus", "recovery_actions"]:
             if key in previous_plan:
@@ -796,6 +1144,7 @@ def patch_exercises_for_intensity(
     focus: str,
 ) -> list[dict[str, Any]]:
     patched = [dict(exercise) for exercise in exercises]
+    current_set_policy = set_policy_from_exercises(patched)
     if intensity == "lower":
         target_count = 2 if fitness_level in {"beginner", "intermediate"} else 3
         reps = "6-8" if fitness_level == "beginner" else "10-12"
@@ -817,9 +1166,9 @@ def patch_exercises_for_intensity(
             limit=3,
         ) if seed_name else []
         if additions:
-            patched.append(replacement_exercise_payload({"sets": 4, "reps": reps}, additions[0]))
+            patched.append(replacement_exercise_payload({"sets": current_set_policy, "reps": reps}, additions[0]))
     for exercise in patched:
-        exercise["sets"] = 4
+        exercise["sets"] = current_set_policy
         exercise["reps"] = reps
         existing_note = str(exercise.get("notes", "")).strip()
         if note not in existing_note:
@@ -1186,6 +1535,29 @@ def replacement_exercise_payload(original_exercise: dict[str, Any], replacement:
         "equipment": ", ".join(replacement.get("equipment", [])),
         "notes": replacement.get("notes", ""),
     }
+
+
+def set_policy_from_session(session: dict[str, Any]) -> int:
+    return set_policy_from_exercises(session.get("exercises", []) if session else [])
+
+
+def set_policy_from_exercises(exercises: list[dict[str, Any]]) -> int:
+    set_values = [
+        clamp_int(exercise.get("sets"), 3, 5, 4)
+        for exercise in exercises
+        if isinstance(exercise, dict)
+    ]
+    if not set_values:
+        return 4
+    counts = {sets: set_values.count(sets) for sets in set_values}
+    return max(counts, key=lambda sets: (counts[sets], sets))
+
+
+def apply_set_policy_to_session(session: dict[str, Any], set_policy: int) -> None:
+    bounded_policy = clamp_int(set_policy, 3, 5, 4)
+    for exercise in session.get("exercises", []):
+        if isinstance(exercise, dict):
+            exercise["sets"] = bounded_policy
 
 
 def focus_tag_from_session(session: dict[str, Any]) -> str:

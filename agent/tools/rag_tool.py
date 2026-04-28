@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
+from agent.rag.retriever import retrieve_exercises
 from agent.tools.exercise_tool import get_exercise_by_name, load_exercise_db
 
 
@@ -25,11 +26,67 @@ def search_similar_exercises(
     exclude: Iterable[str] | None = None,
     limit: int = 5,
 ) -> list[dict[str, Any]]:
-    """Find same-type replacement exercises from the local exercise catalog."""
+    """Find same-type replacement exercises from the local RAG index."""
 
     source = get_exercise_by_name(exercise_name)
     if not source:
         return []
+
+    excluded_names = {_normalize(exercise_name), *_normalize_many(exclude)}
+    query = build_exercise_retrieval_query(source, focus=focus, level=level)
+    rag_matches = retrieve_exercises(
+        query=query,
+        focus=focus,
+        level=level,
+        exclude=excluded_names,
+        source_exercise=source,
+        limit=limit,
+    )
+    if rag_matches:
+        return rag_matches[:limit]
+
+    return _fallback_search_similar_exercises(
+        source=source,
+        exercise_name=exercise_name,
+        focus=focus,
+        level=level,
+        exclude=exclude,
+        limit=limit,
+    )
+
+
+def build_exercise_retrieval_query(
+    source: dict[str, Any],
+    *,
+    focus: str | None = None,
+    level: str | None = None,
+) -> str:
+    """Build a natural-language retrieval query for exercise substitution."""
+
+    parts = [
+        f"Find a substitute exercise for {source.get('name', '')}.",
+        f"Focus: {focus}." if focus else "",
+        f"Level: {level}." if level else "",
+        f"Replacement group: {source.get('replacement_group', '')}.",
+        f"Movement pattern: {source.get('movement_pattern') or source.get('movement_type') or ''}.",
+        f"Primary muscles: {', '.join(source.get('primary_muscles') or source.get('target_muscle') or [])}.",
+        f"Secondary muscles: {', '.join(source.get('secondary_muscles') or [])}.",
+        f"Equipment: {', '.join(source.get('equipment') or [])}.",
+        f"Notes: {source.get('notes', '')}.",
+    ]
+    return "\n".join(part for part in parts if part and not part.endswith(": ."))
+
+
+def _fallback_search_similar_exercises(
+    *,
+    source: dict[str, Any],
+    exercise_name: str,
+    focus: str | None = None,
+    level: str | None = None,
+    exclude: Iterable[str] | None = None,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    """Original metadata-only search kept as a fallback."""
 
     excluded_names = {_normalize(exercise_name), *_normalize_many(exclude)}
     source_focus = _normalize_many(source.get("focus_tags", []))

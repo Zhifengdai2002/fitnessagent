@@ -3,10 +3,10 @@ langchain
 langchain-openai
 pydantic
 python-dotenv
-streamlit
 fastapi
 uvicorn
 google-api-python-client
 chromadb
 sqlalchemy
 pymysql
+pytest

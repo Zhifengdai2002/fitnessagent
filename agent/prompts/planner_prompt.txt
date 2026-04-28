@@ -73,6 +73,7 @@ Rules:
 - For every normal workout, default to 4 sets per exercise.
 - If `normalized_change_request.set_adjustment` is present, treat it as an explicit set-volume request and keep the exercise count unchanged unless the user also asked for adding/removing exercises.
 - Explicit set changes are bounded: minimum 3 sets per exercise and maximum 5 sets per exercise.
+- If today's plan already has a non-default set policy from previous AI Coach edits, preserve that set policy across later same-day workout edits unless the user explicitly changes sets again.
 - Do not use exertion labels or rest-second prescriptions.
 - Normal workouts default to `duration_minutes: 60`.
 - At baseline intensity, use exactly 2 different exercises for beginner, 3 for intermediate, and 4 for advanced.

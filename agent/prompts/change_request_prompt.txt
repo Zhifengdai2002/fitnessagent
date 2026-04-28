@@ -73,6 +73,7 @@ Rules:
 - Allowed `set_adjustment` values are "increase", "decrease", "target", or "".
 - If the user asks for a specific set count, set `set_adjustment` to "target" and put that number in `set_target`.
 - Explicit set changes should keep today's exercise count unchanged unless the user separately asks to add/remove exercises.
+- Once today's sets have been explicitly changed, treat that as the current set policy for today's session until the user changes sets again.
 - If the user says they feel bad, tired, uncomfortable, under-recovered, low-energy, slept badly, overwhelmed, or wants an easier/lighter/shorter workout, set `intensity_adjustment` to "lower".
 - If the user says they feel excited, good, strong, energetic, the plan is too easy, asks to add one exercise/action/movement, or wants more challenge, set `intensity_adjustment` to "higher".
 - If the user does not clearly express lower or higher readiness, return an empty string for `intensity_adjustment`.

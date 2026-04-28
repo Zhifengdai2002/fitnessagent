@@ -21,6 +21,7 @@ The goal is not just to generate a static workout schedule, but to build a coach
 - Automatically advances the plan with `Make Tomorrow's Plan`.
 - Generates a new cycle when the current 7-day cycle ends.
 - Persists current state and memory with MySQL, with local JSON fallback.
+- Uses a lightweight local RAG index to retrieve richer same-focus exercise substitutions.
 
 ## Multi-Agent Design
 
@@ -41,7 +42,7 @@ This structure makes the app closer to a real coaching system than a one-shot pl
 - **Agent Workflow:** LangGraph
 - **LLM:** Zhipu-compatible chat API
 - **Persistence:** MySQL with JSON fallback
-- **Knowledge Tools:** local exercise database, food database, lightweight RAG helpers, YouTube resource lookup
+- **Knowledge Tools:** local exercise database, food database, lightweight vector RAG, YouTube resource lookup
 - **Language:** Python, TypeScript
 
 ## Current Architecture
@@ -58,14 +59,14 @@ Next.js frontend
 ## Future Improvements
 
 - Replace the local JSON exercise and food databases with larger professional data sources.
-- Add vector search for exercise substitutions, food alternatives, and coaching knowledge.
+- Expand vector RAG from exercise substitutions to food alternatives and coaching knowledge.
 - Expand memory from simple structured storage into a richer long-term user profile.
 - Add multi-user authentication and user-specific database records.
 - Move from single-user MySQL persistence to production-ready user/session management.
-- Add explicit function calling / tool calling for all AI Coach actions.
+- Expand the native function-calling tool layer with more specialized coaching tools.
 - Improve plan evaluation with progress trends across multiple cycles.
 - Add richer UI visualizations for body metrics, training consistency, and plan changes.
-- Add testing around AI Coach plan modifications to prevent regressions.
+- Expand regression tests around AI Coach plan modifications to prevent behavior drift.
 
 ## Quick Start
 

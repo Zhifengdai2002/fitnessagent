@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta
 from uuid import uuid4
 
 from agent.llm import call_model_json, load_prompt
+from agent.rag.retriever import retrieve_exercises
 from agent.state import FitnessAgentState, FitnessPlan, MealSuggestion, WorkoutSession
 from agent.tools import (
     build_video_resources,
@@ -1070,15 +1071,15 @@ def _build_workout_session(
 
     focus_key = _focus_key_from_value(focus)
     target_muscles, movement_type = _focus_to_targets(focus_key)
-    candidate_exercises = find_exercises(
+    candidate_exercises = _retrieve_plan_exercise_candidates(
+        focus_key=focus_key,
         target_muscles=target_muscles,
         movement_type=movement_type,
-        difficulty=fitness_level,
-        available_equipment=equipment_access,
+        fitness_level=fitness_level,
         training_goal=training_goal,
+        equipment_access=equipment_access,
         excluded_conditions=excluded_conditions,
-        recommended_for=_recommended_program_tags(equipment_access, excluded_conditions),
-        focus_tags=[focus_key],
+        excluded_exercises=excluded_exercises,
         limit=_exercise_count_for_level(fitness_level, exercise_count_delta),
     )
     filtered_exercises = [
@@ -1144,15 +1145,15 @@ def _build_session_blueprint(
     target_count = _exercise_count_for_level(fitness_level, exercise_count_delta)
     candidate_limit = _candidate_pool_limit(target_count)
     target_muscles, movement_type = _focus_to_targets(focus_key)
-    candidates = find_exercises(
+    candidates = _retrieve_plan_exercise_candidates(
+        focus_key=focus_key,
         target_muscles=target_muscles,
         movement_type=movement_type,
-        difficulty=fitness_level,
-        available_equipment=equipment_access,
+        fitness_level=fitness_level,
         training_goal=training_goal,
+        equipment_access=equipment_access,
         excluded_conditions=excluded_conditions,
-        recommended_for=_recommended_program_tags(equipment_access, excluded_conditions),
-        focus_tags=[focus_key],
+        excluded_exercises=excluded_exercises,
         limit=candidate_limit,
     )
     filtered_candidates = [
@@ -1163,6 +1164,7 @@ def _build_session_blueprint(
             "training_goal_tags": exercise.get("training_goal_tags", []),
             "movement_pattern": exercise.get("movement_pattern", ""),
             "replacement_group": exercise.get("replacement_group", ""),
+            "focus_tags": exercise.get("focus_tags", []),
             "equipment": exercise.get("equipment", []),
             "notes": exercise.get("notes", ""),
         }
@@ -1195,6 +1197,7 @@ def _build_session_blueprint(
                     "training_goal_tags": exercise.get("training_goal_tags", []),
                     "movement_pattern": exercise.get("movement_pattern", ""),
                     "replacement_group": exercise.get("replacement_group", ""),
+                    "focus_tags": exercise.get("focus_tags", []),
                     "equipment": exercise.get("equipment", []),
                     "notes": exercise.get("notes", ""),
                 }
@@ -1222,6 +1225,7 @@ def _build_session_blueprint(
                 "training_goal_tags": [training_goal],
                 "movement_pattern": "",
                 "replacement_group": "",
+                "focus_tags": [focus_key],
                 "equipment": exercise["equipment"].split(", "),
                 "notes": exercise["notes"],
             }
@@ -1267,6 +1271,115 @@ def _build_food_candidates(constraints: dict) -> list[dict]:
                 }
             )
     return candidates
+
+
+def _retrieve_plan_exercise_candidates(
+    *,
+    focus_key: str,
+    target_muscles: list[str],
+    movement_type: str | None,
+    fitness_level: str,
+    training_goal: str,
+    equipment_access: list[str],
+    excluded_conditions: list[str],
+    excluded_exercises: list[str],
+    limit: int,
+) -> list[dict]:
+    """Return exercise candidates for planning, preferring the local RAG index."""
+
+    query = _build_plan_exercise_query(
+        focus_key=focus_key,
+        target_muscles=target_muscles,
+        movement_type=movement_type,
+        fitness_level=fitness_level,
+        training_goal=training_goal,
+    )
+    candidates = retrieve_exercises(
+        query=query,
+        focus=focus_key,
+        level=fitness_level,
+        exclude=excluded_exercises,
+        excluded_conditions=excluded_conditions,
+        limit=limit,
+    )
+    candidates = _filter_plan_exercise_candidates(candidates, excluded_exercises)
+    if len(candidates) >= limit:
+        return candidates[:limit]
+
+    fallback_candidates = find_exercises(
+        target_muscles=target_muscles,
+        movement_type=movement_type,
+        difficulty=fitness_level,
+        available_equipment=equipment_access,
+        training_goal=training_goal,
+        excluded_conditions=excluded_conditions,
+        recommended_for=_recommended_program_tags(equipment_access, excluded_conditions),
+        focus_tags=[focus_key],
+        limit=max(limit * 2, limit),
+    )
+    return _merge_plan_exercise_candidates(candidates, fallback_candidates, excluded_exercises, limit)
+
+
+def _build_plan_exercise_query(
+    *,
+    focus_key: str,
+    target_muscles: list[str],
+    movement_type: str | None,
+    fitness_level: str,
+    training_goal: str,
+) -> str:
+    pieces = [
+        f"Find exercises for a {_focus_label(focus_key)} workout.",
+        f"Focus tag: {focus_key}.",
+        f"Fitness level: {fitness_level}.",
+        f"Training goal: {training_goal}.",
+        f"Target muscles: {', '.join(target_muscles)}.",
+    ]
+    if movement_type:
+        pieces.append(f"Movement type: {movement_type}.")
+    pieces.append("Prefer appropriate alternatives with matching muscles, movement pattern, and difficulty.")
+    return "\n".join(pieces)
+
+
+def _filter_plan_exercise_candidates(candidates: list[dict], excluded_exercises: list[str]) -> list[dict]:
+    excluded = {_normalize_exercise_key(value) for value in excluded_exercises}
+    filtered: list[dict] = []
+    seen: set[str] = set()
+    for exercise in candidates:
+        name_key = _normalize_exercise_key(str(exercise.get("name", "")))
+        id_key = _normalize_exercise_key(str(exercise.get("id", "")))
+        if not name_key or name_key in seen:
+            continue
+        if name_key in excluded or id_key in excluded:
+            continue
+        seen.add(name_key)
+        filtered.append(exercise)
+    return filtered
+
+
+def _merge_plan_exercise_candidates(
+    primary: list[dict],
+    fallback: list[dict],
+    excluded_exercises: list[str],
+    limit: int,
+) -> list[dict]:
+    merged = _filter_plan_exercise_candidates(primary, excluded_exercises)
+    seen = {_normalize_exercise_key(str(exercise.get("name", ""))) for exercise in merged}
+    excluded = {_normalize_exercise_key(value) for value in excluded_exercises}
+    for exercise in fallback:
+        if len(merged) >= limit:
+            break
+        name_key = _normalize_exercise_key(str(exercise.get("name", "")))
+        id_key = _normalize_exercise_key(str(exercise.get("id", "")))
+        if not name_key or name_key in seen or name_key in excluded or id_key in excluded:
+            continue
+        seen.add(name_key)
+        merged.append(exercise)
+    return merged[:limit]
+
+
+def _normalize_exercise_key(value: str) -> str:
+    return value.strip().lower().replace("-", "_").replace(" ", "_")
 
 
 def _finalize_workout_session(

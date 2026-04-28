@@ -106,6 +106,71 @@ def call_model_text(
     return _coerce_message_content(response.choices[0].message.content).strip()
 
 
+def call_model_tool(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    tools: list[dict[str, Any]],
+    tool_choice: str | dict[str, Any] = "auto",
+    temperature: float = 0.0,
+    max_tokens: int = 700,
+) -> dict[str, Any]:
+    """Call the configured model with native tool/function calling enabled."""
+
+    settings = load_settings()
+    client = get_model_client()
+
+    response = client.chat.completions.create(
+        model=settings.model_name,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        tools=tools,
+        tool_choice=tool_choice,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        extra_body={
+            "thinking": {
+                "type": "disabled",
+            }
+        },
+    )
+    message = response.choices[0].message
+    tool_calls = getattr(message, "tool_calls", None) or []
+    if not tool_calls:
+        content = _coerce_message_content(message.content)
+        if content.strip():
+            parsed = _extract_json(content)
+            if isinstance(parsed, dict):
+                return parsed
+        raise ValueError("Model response did not contain a tool call.")
+
+    first_call = tool_calls[0]
+    function = getattr(first_call, "function", None)
+    if function is None and isinstance(first_call, dict):
+        function = first_call.get("function", {})
+
+    name = getattr(function, "name", None) if function is not None else None
+    if name is None and isinstance(function, dict):
+        name = function.get("name")
+
+    raw_arguments = getattr(function, "arguments", "{}") if function is not None else "{}"
+    if isinstance(function, dict):
+        raw_arguments = function.get("arguments", raw_arguments)
+    if isinstance(raw_arguments, dict):
+        arguments = raw_arguments
+    else:
+        arguments = json.loads(str(raw_arguments or "{}"))
+    if not isinstance(arguments, dict):
+        arguments = {}
+    return {
+        "tool_name": str(name or ""),
+        "arguments": arguments,
+        "source": "native_tool_call",
+    }
+
+
 def _coerce_message_content(content: Any) -> str:
     if isinstance(content, str):
         return content
