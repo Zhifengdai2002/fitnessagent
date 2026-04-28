@@ -11,6 +11,7 @@ from agent.llm import call_model_json, load_prompt
 from agent.rag.retriever import retrieve_exercises
 from agent.state import FitnessAgentState, FitnessPlan, MealSuggestion, WorkoutSession
 from agent.tools import (
+    build_exercise_plan_payload,
     build_video_resources,
     calculate_food_macros,
     find_exercises,
@@ -1452,17 +1453,15 @@ def _finalize_exercises(
             continue
         used_names.add(name)
         finalized.append(
-            {
-                "name": matched["name"],
-                "target_muscle": ", ".join(matched.get("target_muscle", [])),
-                "sets": _sets_for_level(fitness_level),
-                "reps": _rep_range_for_goal(training_goal, fitness_level, intensity_adjustment),
-                "equipment": ", ".join(matched.get("equipment", [])),
-                "notes": _apply_intensity_note(
+            build_exercise_plan_payload(
+                matched,
+                sets=_sets_for_level(fitness_level),
+                reps=_rep_range_for_goal(training_goal, fitness_level, intensity_adjustment),
+                notes=_apply_intensity_note(
                     str(payload.get("notes") or matched.get("notes", "")),
                     intensity_adjustment,
                 ),
-            }
+            )
         )
 
     for candidate in candidate_exercises:
@@ -1475,14 +1474,12 @@ def _finalize_exercises(
             continue
         used_names.add(candidate["name"])
         finalized.append(
-            {
-                "name": matched["name"],
-                "target_muscle": ", ".join(matched.get("target_muscle", [])),
-                "sets": _sets_for_level(fitness_level),
-                "reps": _rep_range_for_goal(training_goal, fitness_level, intensity_adjustment),
-                "equipment": ", ".join(matched.get("equipment", [])),
-                "notes": _apply_intensity_note(matched.get("notes", ""), intensity_adjustment),
-            }
+            build_exercise_plan_payload(
+                matched,
+                sets=_sets_for_level(fitness_level),
+                reps=_rep_range_for_goal(training_goal, fitness_level, intensity_adjustment),
+                notes=_apply_intensity_note(matched.get("notes", ""), intensity_adjustment),
+            )
         )
     return finalized
 

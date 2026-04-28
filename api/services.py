@@ -21,6 +21,7 @@ from agent.services.persistence import (
     load_app_state,
     save_app_state,
 )
+from agent.services.plan_enrichment import hydrate_agent_result_for_display
 from agent.services.planning_helpers import (
     current_interaction_date,
     default_equipment_access,
@@ -175,6 +176,8 @@ def _prepare_session(session_state: dict[str, Any]) -> None:
         if key in payload:
             session_state[key] = payload[key]
     session_state["memory_store"] = normalize_memory_store(session_state.get("memory_store"))
+    if session_state.get("agent_result"):
+        session_state["agent_result"] = hydrate_agent_result_for_display(session_state["agent_result"])
 
 
 def _default_session_state() -> dict[str, Any]:
@@ -220,6 +223,8 @@ def _profile_inputs_from_request(request: GeneratePlanRequest) -> dict[str, Any]
 
 def _state_snapshot(session_state: dict[str, Any]) -> dict[str, Any]:
     result: FitnessAgentState | dict[str, Any] = session_state.get("agent_result") or {}
+    if result:
+        result = hydrate_agent_result_for_display(result)
     active_date = session_state.get("active_date") or result.get("current_date", "")
     return json_safe(
         {

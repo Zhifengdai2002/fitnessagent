@@ -6,6 +6,7 @@ import json
 import re
 from copy import deepcopy
 from datetime import datetime
+from difflib import SequenceMatcher
 from typing import Any
 
 from agent.graph import run_agent
@@ -21,6 +22,7 @@ from agent.services.planning_helpers import (
 from agent.services.state_builders import build_initial_state
 from agent.state import FitnessAgentState
 from agent.tools import (
+    build_exercise_plan_payload,
     build_video_resources,
     calculate_food_macros,
     find_foods,
@@ -39,6 +41,17 @@ ALLOWED_FOCUS_CATEGORIES = {
     "functional_core",
     "functional_power",
     "functional_conditioning",
+}
+ALLOWED_NORMALIZED_INTENTS = {
+    "no_action",
+    "update_today_plan",
+    "replace_exercise",
+    "replace_food",
+    "adjust_sets",
+    "adjust_intensity",
+    "cancel_workout",
+    "answer_question",
+    "unclear",
 }
 
 ALLOWED_COACH_TOOLS = {
@@ -230,6 +243,8 @@ def call_chat_assistant(user_message: str, session_state: dict[str, Any]) -> str
     prompt = user_message
     if update_summary:
         prompt = f"{user_message}\n\nApp action already completed: {update_summary}"
+    else:
+        prompt = f"{user_message}\n\nNo app state change was completed for this message. Do not say that today's plan was updated unless the app context itself shows the change."
     try:
         reply = call_model_text(
             system_prompt=system_prompt,
@@ -392,6 +407,9 @@ def sanitize_tool_call(planned: dict[str, Any], fallback: dict[str, Any]) -> dic
     confidence = clamp_float(planned.get("confidence"), 0.0, 1.0, 0.0)
     if confidence < 0.45:
         return fallback
+    fallback_tool = str(fallback.get("tool_name", "no_action"))
+    if fallback_tool in {"cancel_workout", "adjust_sets", "replace_exercise", "replace_food"}:
+        tool_name = fallback_tool
     arguments = dict(fallback.get("arguments", {}))
     planned_arguments = planned.get("arguments", {})
     if isinstance(planned_arguments, dict):
@@ -495,32 +513,48 @@ def fallback_coordinator_decision(user_message: str, result: FitnessAgentState |
     normalized = augment_chat_intensity_change(user_message, normalized)
     normalized = augment_chat_food_change(user_message, normalized, result)
     normalized = augment_chat_focus_change(user_message, normalized)
+    normalized = infer_missing_intent_from_normalized(normalized)
 
-    if coerce_string_list(normalized.get("temporary_food_avoidances"), []):
+    intent = str(normalized.get("intent", "")).strip()
+    if intent == "replace_food" or coerce_string_list(normalized.get("temporary_food_avoidances"), []):
         return {
             "route": "planner",
             "planner_action": "replace_food",
             "normalized": normalized,
             "action_message": "Today's nutrition was updated by AI Coach.",
         }
-    if chat_message_requests_exercise_replacement(user_message):
+    if intent == "replace_exercise" or chat_message_requests_exercise_replacement(user_message):
         return {
             "route": "planner",
             "planner_action": "replace_exercise",
             "normalized": normalized,
             "action_message": "Today's plan was updated by AI Coach.",
         }
-    if not chat_request_should_update_today(user_message, normalized):
-        return {"route": "none", "normalized": normalized}
-    if normalized.get("cancel_today") or normalized.get("injury_reported"):
+    if intent == "cancel_workout" or normalized.get("cancel_today") or normalized.get("injury_reported"):
         return {"route": "safety", "planner_action": "cancel_workout", "normalized": normalized}
-    if str(normalized.get("set_adjustment", "")).strip() or str(normalized.get("intensity_adjustment", "")).strip():
+    if intent == "adjust_sets" or str(normalized.get("set_adjustment", "")).strip():
         return {
             "route": "planner",
             "planner_action": "adjust_intensity",
             "normalized": normalized,
             "action_message": "Today's plan was updated by AI Coach.",
         }
+    if intent == "adjust_intensity" or str(normalized.get("intensity_adjustment", "")).strip():
+        return {
+            "route": "planner",
+            "planner_action": "adjust_intensity",
+            "normalized": normalized,
+            "action_message": "Today's plan was updated by AI Coach.",
+        }
+    if intent == "update_today_plan":
+        return {
+            "route": "planner",
+            "planner_action": "update_today_plan",
+            "normalized": normalized,
+            "action_message": "Today's plan was updated by AI Coach.",
+        }
+    if not chat_request_should_update_today(user_message, normalized):
+        return {"route": "none", "normalized": normalized}
     return {
         "route": "planner",
         "planner_action": "update_today_plan",
@@ -548,6 +582,9 @@ def sanitize_coordinator_decision(routed: dict[str, Any], fallback: dict[str, An
         return fallback
     if str(fallback.get("route", "none")) != "none" and target_agent == "none":
         return fallback
+    if _fallback_action_is_strong(fallback):
+        target_agent = str(fallback.get("route", target_agent))
+        planner_action = str(fallback.get("planner_action", planner_action))
 
     sanitized = dict(fallback)
     sanitized["route"] = route_map[target_agent]
@@ -567,6 +604,17 @@ def sanitize_coordinator_decision(routed: dict[str, Any], fallback: dict[str, An
     elif sanitized["planner_action"] != "none":
         sanitized["action_message"] = "Today's plan was updated by AI Coach."
     return sanitized
+
+
+def _fallback_action_is_strong(fallback: dict[str, Any]) -> bool:
+    return str(fallback.get("planner_action", "")) in {
+        "replace_exercise",
+        "replace_food",
+        "cancel_workout",
+    } or bool(
+        fallback.get("normalized", {}).get("set_adjustment")
+        or fallback.get("normalized", {}).get("intensity_adjustment")
+    )
 
 
 def cancel_today_from_chat(
@@ -1039,7 +1087,17 @@ def build_chat_context(result: FitnessAgentState | dict[str, Any], session_state
     current_plan = result.get("current_plan", {})
     today_session = select_today_session(sort_workout_sessions(current_plan.get("workout_sessions", [])), current_date)
     exercises = [
-        f"{exercise.get('name', '')} {exercise.get('sets', '')}x{exercise.get('reps', '')}".strip()
+        {
+            "name": exercise.get("name", ""),
+            "prescription": f"{exercise.get('sets', '')}x{exercise.get('reps', '')}".strip(),
+            "primary_muscles": exercise.get("primary_muscles", []),
+            "coaching_cue": exercise.get("coaching_cue", ""),
+            "why_this_exercise": exercise.get("why_this_exercise", ""),
+            "common_mistake": exercise.get("common_mistake", ""),
+            "regression": exercise.get("regression", ""),
+            "progression": exercise.get("progression", ""),
+            "knowledge_source": exercise.get("knowledge_source", ""),
+        }
         for exercise in today_session.get("exercises", [])
     ] if today_session else []
     latest_feedback = result.get("latest_feedback", {})
@@ -1099,10 +1157,14 @@ def sanitize_normalized_change_request(normalized: dict[str, Any]) -> dict[str, 
     request_type = str(normalized.get("request_type", "unclear")).strip()
     scope = str(normalized.get("scope", "unclear")).strip()
     focus_category = str(normalized.get("focus_category", "")).strip()
+    intent = str(normalized.get("intent", "unclear")).strip()
     return {
+        "intent": intent if intent in ALLOWED_NORMALIZED_INTENTS else "unclear",
         "request_type": request_type if request_type in ALLOWED_CHANGE_REQUEST_TYPES else "unclear",
         "scope": scope if scope in ALLOWED_CHANGE_REQUEST_SCOPES else "unclear",
         "focus_category": focus_category if focus_category in ALLOWED_FOCUS_CATEGORIES else "",
+        "keep_current_focus": bool(normalized.get("keep_current_focus", False)),
+        "target": str(normalized.get("target", "")).strip(),
         "injury_reported": bool(normalized.get("injury_reported", False)),
         "injury_areas": coerce_string_list(normalized.get("injury_areas"), []),
         "cancel_today": bool(normalized.get("cancel_today", False)),
@@ -1117,12 +1179,33 @@ def sanitize_normalized_change_request(normalized: dict[str, Any]) -> dict[str, 
     }
 
 
+def infer_missing_intent_from_normalized(normalized: dict[str, Any]) -> dict[str, Any]:
+    inferred = dict(normalized)
+    intent = str(inferred.get("intent", "")).strip()
+    if intent and intent not in {"unclear", "answer_question"}:
+        return inferred
+    if inferred.get("injury_reported") or inferred.get("cancel_today"):
+        inferred["intent"] = "cancel_workout"
+    elif coerce_string_list(inferred.get("temporary_food_avoidances"), []):
+        inferred["intent"] = "replace_food"
+    elif str(inferred.get("set_adjustment", "")).strip():
+        inferred["intent"] = "adjust_sets"
+    elif str(inferred.get("intensity_adjustment", "")).strip():
+        inferred["intent"] = "adjust_intensity"
+    elif str(inferred.get("focus_category", "")).strip():
+        inferred["intent"] = "update_today_plan"
+    else:
+        inferred["intent"] = "unclear"
+    return inferred
+
+
 def build_change_request_context(change_request: str, normalized_change_request: dict[str, Any]) -> str:
     summary = str(normalized_change_request.get("summary", "")).strip()
+    intent = str(normalized_change_request.get("intent", "unclear")).strip()
     request_type = str(normalized_change_request.get("request_type", "unclear")).strip()
     scope = str(normalized_change_request.get("scope", "unclear")).strip()
     focus = str(normalized_change_request.get("focus_category", "")).strip()
-    pieces = [f"User requested: {change_request}", f"Type={request_type}", f"Scope={scope}"]
+    pieces = [f"User requested: {change_request}", f"Intent={intent}", f"Type={request_type}", f"Scope={scope}"]
     if focus:
         pieces.append(f"Focus={focus}")
     if normalized_change_request.get("intensity_adjustment"):
@@ -1486,7 +1569,15 @@ def chat_request_should_update_today(user_message: str, normalized: dict[str, An
     text = user_message.lower()
     update_terms = ["update", "change", "switch", "add", "make today", "today", "can i", "could i", "i want", "want", "do more", "energized", "excited", "strong", "easier", "lighter", "harder", "injury", "injured", "hurt", "pain", "sleep", "slept", "didn't sleep", "dont sleep", "don't sleep", "poor sleep", "let's", "练", "改", "换", "加", "今天"]
     has_update_language = any(term in text for term in update_terms)
-    has_structured_change = bool(normalized.get("focus_category") or normalized.get("cancel_today") or normalized.get("set_adjustment") or normalized.get("intensity_adjustment") or normalized.get("temporary_food_avoidances") or normalized.get("permanent_food_preferences"))
+    has_structured_change = bool(
+        normalized.get("focus_category")
+        or normalized.get("cancel_today")
+        or normalized.get("set_adjustment")
+        or normalized.get("intensity_adjustment")
+        or normalized.get("temporary_food_avoidances")
+        or normalized.get("permanent_food_preferences")
+        or str(normalized.get("intent", "")) in {"update_today_plan", "replace_exercise", "replace_food", "adjust_sets", "adjust_intensity", "cancel_workout"}
+    )
     request_type = str(normalized.get("request_type", ""))
     if normalized.get("injury_reported") or normalized.get("cancel_today"):
         return has_structured_change
@@ -1494,6 +1585,14 @@ def chat_request_should_update_today(user_message: str, normalized: dict[str, An
 
 
 def chat_message_requests_exercise_replacement(user_message: str) -> bool:
+    text = user_message.lower()
+    return chat_message_has_replacement_language(user_message) and (
+        chat_requests_general_exercise_replacement(user_message)
+        or any(term in text for term in ["exercise", "action", "movement", "动作"])
+    )
+
+
+def chat_message_has_replacement_language(user_message: str) -> bool:
     text = user_message.lower()
     replacement_terms = ["replace", "swap", "change", "alternative", "instead", "换", "替换", "不要", "不想做", "换掉", "改掉"]
     return any(term in text for term in replacement_terms)
@@ -1503,7 +1602,32 @@ def chat_requests_general_exercise_replacement(user_message: str) -> bool:
     text = user_message.lower()
     exercise_terms = ["exercise", "exercises", "action", "actions", "movement", "movements", "动作"]
     general_terms = ["some", "all", "another", "alternative", "alternatives", "different", "new", "几个", "一些", "全部", "换一换", "换几个", "换掉"]
-    return any(term in text for term in exercise_terms) and any(term in text for term in general_terms)
+    food_terms = ["food", "meal", "nutrition", "diet", "breakfast", "lunch", "dinner", "snack", "食物", "饮食", "餐"]
+    has_exercise_language = any(term in text for term in exercise_terms) or any(
+        fuzzy_contains_word(text, canonical) for canonical in ["exercise", "exercises", "movement", "movements"]
+    )
+    has_general_language = any(term in text for term in general_terms)
+    has_replacement_language = chat_message_has_replacement_language(user_message)
+    has_food_language = any(term in text for term in food_terms)
+    if has_exercise_language and has_general_language:
+        return True
+    return has_replacement_language and has_general_language and not has_food_language
+
+
+def _has_exercise_typo_token(text: str) -> bool:
+    return any(fuzzy_word_match(token, "exercise") or fuzzy_word_match(token, "exercises") for token in re.findall(r"[a-z]+", text.lower()))
+
+
+def fuzzy_contains_word(text: str, canonical: str, threshold: float = 0.84) -> bool:
+    return any(fuzzy_word_match(token, canonical, threshold) for token in re.findall(r"[a-z]+", text.lower()))
+
+
+def fuzzy_word_match(token: str, canonical: str, threshold: float = 0.84) -> bool:
+    if len(token) < 5:
+        return False
+    if token == canonical:
+        return True
+    return SequenceMatcher(None, token, canonical).ratio() >= threshold
 
 
 def exercise_index_from_chat_message(user_message: str, exercises: list[dict[str, Any]]) -> int | None:
@@ -1527,14 +1651,12 @@ def exercise_index_from_chat_message(user_message: str, exercises: list[dict[str
 
 
 def replacement_exercise_payload(original_exercise: dict[str, Any], replacement: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "name": replacement.get("name", ""),
-        "target_muscle": ", ".join(replacement.get("target_muscle", [])),
-        "sets": original_exercise.get("sets", 4),
-        "reps": original_exercise.get("reps", ""),
-        "equipment": ", ".join(replacement.get("equipment", [])),
-        "notes": replacement.get("notes", ""),
-    }
+    return build_exercise_plan_payload(
+        replacement,
+        sets=clamp_int(original_exercise.get("sets"), 3, 5, 4),
+        reps=str(original_exercise.get("reps", "")),
+        notes=str(replacement.get("notes", "")),
+    )
 
 
 def set_policy_from_session(session: dict[str, Any]) -> int:

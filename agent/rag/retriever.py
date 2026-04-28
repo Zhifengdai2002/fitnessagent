@@ -28,6 +28,9 @@ def exercise_index() -> dict[str, Any]:
 
 
 def rebuild_exercise_index() -> dict[str, Any]:
+    from agent.rag.documents import load_exercise_documents_source
+
+    load_exercise_documents_source.cache_clear()
     exercise_index.cache_clear()
     return build_index(build_exercise_documents())
 

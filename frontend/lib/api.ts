@@ -15,9 +15,19 @@ export type ChatMessage = {
 
 export type Exercise = {
   name?: string;
+  target_muscle?: string;
   sets?: number;
   reps?: string;
+  equipment?: string;
   notes?: string;
+  primary_muscles?: string[];
+  secondary_muscles?: string[];
+  coaching_cue?: string;
+  why_this_exercise?: string;
+  common_mistake?: string;
+  regression?: string;
+  progression?: string;
+  knowledge_source?: string;
 };
 
 export type WorkoutSession = {
@@ -30,6 +40,13 @@ export type WorkoutSession = {
   cooldown?: string[];
   safety_notes?: string[];
   is_cancelled?: boolean;
+};
+
+export type VideoResource = {
+  exercise_name?: string;
+  title?: string;
+  url?: string;
+  source?: string;
 };
 
 export type MealSuggestion = {
@@ -53,6 +70,7 @@ export type AgentResult = {
   current_plan?: FitnessPlan;
   daily_history?: DailyHistoryItem[];
   coaching_message?: string;
+  youtube_resources?: VideoResource[];
 };
 
 export type DailyHistoryItem = {
@@ -166,4 +184,3 @@ export function resetApp() {
     method: "POST"
   });
 }
-

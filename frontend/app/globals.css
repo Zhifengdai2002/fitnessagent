@@ -247,8 +247,55 @@ textarea:focus {
   line-height: 1.55;
 }
 
+.exercise-details {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 4px;
+  border-left: 3px solid #d9e8e4;
+  padding-left: 12px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.exercise-details div {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.exercise-details dt {
+  color: var(--text);
+  font-weight: 800;
+}
+
+.exercise-details dd {
+  margin: 0;
+}
+
 .workout-card.compact {
   margin-top: 16px;
+}
+
+.video-list {
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.video-list h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.video-list a {
+  color: var(--accent-dark);
+  font-weight: 750;
+}
+
+.video-list span {
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .recovery-card {
@@ -347,4 +394,3 @@ textarea:focus {
     bottom: 16px;
   }
 }
-

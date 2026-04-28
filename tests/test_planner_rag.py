@@ -43,3 +43,33 @@ def test_session_blueprint_uses_rag_candidate_pool() -> None:
         "upper_shoulders" in candidate.get("focus_tags", [])
         for candidate in blueprint["candidate_exercises"]
     )
+
+
+def test_session_blueprint_finalization_adds_exercise_teaching_metadata() -> None:
+    from agent.nodes.planner import _finalize_workout_session
+
+    blueprint = _build_session_blueprint(
+        day="Monday",
+        scheduled_date="2026-04-27",
+        cycle_number=1,
+        cycle_session_index=1,
+        focus="Upper Body (Shoulders)",
+        duration_minutes=60,
+        fitness_level="beginner",
+        training_goal="weight_loss",
+        equipment_access=["bodyweight", "dumbbell", "bench"],
+        excluded_conditions=[],
+        excluded_exercises=[],
+    )
+    session = _finalize_workout_session(
+        blueprint=blueprint,
+        session_payload={},
+        fitness_level="beginner",
+        training_goal="weight_loss",
+    )
+
+    assert session["exercises"]
+    first = session["exercises"][0]
+    assert first["coaching_cue"]
+    assert first["why_this_exercise"]
+    assert first["common_mistake"]

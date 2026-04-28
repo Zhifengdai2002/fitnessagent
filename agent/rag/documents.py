@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 EXERCISE_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "exercise_db.json"
+WGER_CACHE_PATH = Path(__file__).resolve().parents[2] / "data" / "external" / "wger_exercises.json"
 
 
 def build_exercise_documents() -> list[dict[str, Any]]:
@@ -77,9 +78,34 @@ def build_exercise_documents() -> list[dict[str, Any]]:
 
 @lru_cache(maxsize=1)
 def load_exercise_documents_source() -> list[dict[str, Any]]:
+    exercises: list[dict[str, Any]] = []
     with EXERCISE_DB_PATH.open("r", encoding="utf-8") as file:
         payload = json.load(file)
-    return payload if isinstance(payload, list) else []
+    if isinstance(payload, list):
+        exercises.extend(item for item in payload if isinstance(item, dict))
+    if WGER_CACHE_PATH.exists():
+        try:
+            wger_payload = json.loads(WGER_CACHE_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            wger_payload = []
+        if isinstance(wger_payload, list):
+            exercises.extend(item for item in wger_payload if isinstance(item, dict))
+    return _dedupe_exercises(exercises)
+
+
+def _dedupe_exercises(exercises: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen_names: set[str] = set()
+    for exercise in exercises:
+        name = str(exercise.get("name", "")).strip()
+        if not name:
+            continue
+        name_key = _slug(name)
+        if name_key in seen_names:
+            continue
+        seen_names.add(name_key)
+        deduped.append(exercise)
+    return deduped
 
 
 def _list_text(value: Any) -> str:

@@ -22,6 +22,7 @@ The goal is not just to generate a static workout schedule, but to build a coach
 - Generates a new cycle when the current 7-day cycle ends.
 - Persists current state and memory with MySQL, with local JSON fallback.
 - Uses a lightweight local RAG index to retrieve richer same-focus exercise substitutions.
+- Can import wger exercise data into the local RAG cache to expand the planning knowledge base.
 
 ## Multi-Agent Design
 
@@ -42,7 +43,7 @@ This structure makes the app closer to a real coaching system than a one-shot pl
 - **Agent Workflow:** LangGraph
 - **LLM:** Zhipu-compatible chat API
 - **Persistence:** MySQL with JSON fallback
-- **Knowledge Tools:** local exercise database, food database, lightweight vector RAG, YouTube resource lookup
+- **Knowledge Tools:** local exercise database, optional wger exercise import, food database, lightweight vector RAG, YouTube resource lookup
 - **Language:** Python, TypeScript
 
 ## Current Architecture
@@ -59,6 +60,7 @@ Next.js frontend
 ## Future Improvements
 
 - Replace the local JSON exercise and food databases with larger professional data sources.
+- Improve external exercise normalization with cleaner instruction fields, media URLs, and difficulty mapping.
 - Expand vector RAG from exercise substitutions to food alternatives and coaching knowledge.
 - Expand memory from simple structured storage into a richer long-term user profile.
 - Add multi-user authentication and user-specific database records.
@@ -87,6 +89,12 @@ Open:
 
 ```text
 http://127.0.0.1:3000
+```
+
+Optional wger import:
+
+```bash
+.venv/bin/python -m agent.rag.wger_importer --limit 200 --max-pages 3
 ```
 
 ## Disclaimer

@@ -5,6 +5,7 @@ from datetime import datetime
 
 import pytest
 
+import agent.tools.exercise_tool as exercise_tool
 from agent.services import coach_chat_service as coach
 from agent.services.mysql_store import _structured_rows_from_payload
 from agent.services.memory import default_memory_store
@@ -158,6 +159,90 @@ def test_tool_selection_distinguishes_sets_from_vague_intensity(monkeypatch: pyt
     assert do_more_tool["arguments"]["intensity_adjustment"] == "higher"
 
 
+def test_strong_replacement_intent_overrides_coordinator_drift(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        coach,
+        "call_model_json",
+        lambda **_: {
+            "target_agent": "planner",
+            "planner_action": "update_today_plan",
+            "confidence": 0.98,
+            "reason": "LLM drifted to a broader plan patch.",
+        },
+    )
+
+    decision = coach.route_coach_message(
+        "change some actions",
+        {
+            **_sample_result(),
+            "current_plan": {
+                **_sample_result()["current_plan"],
+                "workout_sessions": [
+                    {
+                        **_today(_sample_result()),
+                        "focus": "Upper Body (Shoulders)",
+                        "exercises": [
+                            {"name": "Seated Dumbbell Shoulder Press", "sets": 4, "reps": "6-10"},
+                            {"name": "Dumbbell Lateral Raise", "sets": 4, "reps": "6-10"},
+                        ],
+                    }
+                ],
+            },
+        },
+        _session_state(),
+    )
+
+    assert decision["planner_action"] == "replace_exercise"
+
+
+def test_strong_tool_fallback_overrides_tool_planner_drift() -> None:
+    tool_call = coach.sanitize_tool_call(
+        {
+            "tool_name": "update_today_plan",
+            "arguments": {"focus_category": "upper_chest_arms"},
+            "confidence": 0.99,
+        },
+        {
+            "tool_name": "replace_exercise",
+            "arguments": {"request_type": "workout_change"},
+            "source": "fallback",
+        },
+    )
+
+    assert tool_call["tool_name"] == "replace_exercise"
+
+
+def test_typo_exericises_is_treated_as_general_exercise_replacement() -> None:
+    assert coach.chat_requests_general_exercise_replacement("change some exericises")
+
+
+def test_normalized_replace_exercise_intent_routes_without_keyword(monkeypatch: pytest.MonkeyPatch) -> None:
+    responses = iter(
+        [
+            {
+                "intent": "replace_exercise",
+                "request_type": "workout_change",
+                "scope": "today_only",
+                "keep_current_focus": True,
+                "summary": "The user wants different same-focus exercises.",
+                "confidence": 0.9,
+            },
+            {
+                "target_agent": "planner",
+                "planner_action": "update_today_plan",
+                "confidence": 0.95,
+                "reason": "Coordinator drift.",
+            },
+        ]
+    )
+    monkeypatch.setattr(coach, "call_model_json", lambda **_: next(responses))
+
+    decision = coach.route_coach_message("can we do different ones", _sample_result(), _session_state())
+
+    assert decision["planner_action"] == "replace_exercise"
+    assert decision["normalized"]["keep_current_focus"] is True
+
+
 def test_rag_search_returns_same_focus_exercise_alternative() -> None:
     replacements = search_similar_exercises(
         exercise_name="Seated Dumbbell Shoulder Press",
@@ -170,6 +255,62 @@ def test_rag_search_returns_same_focus_exercise_alternative() -> None:
     assert replacements
     assert replacements[0]["name"] != "Seated Dumbbell Shoulder Press"
     assert "upper_shoulders" in replacements[0].get("focus_tags", [])
+
+
+def test_video_resources_use_imported_media_and_youtube_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        exercise_tool,
+        "load_all_exercise_db",
+        lambda: [
+            {
+                "name": "Imported Shoulder Raise",
+                "media_url": "https://example.com/shoulder-raise.mp4",
+                "source": "wger",
+            },
+            {"name": "No Local Media"},
+        ],
+    )
+    monkeypatch.setattr(
+        "agent.tools.youtube_tool.search_youtube_video",
+        lambda exercise_name: {
+            "title": f"{exercise_name} tutorial",
+            "url": "https://www.youtube.com/watch?v=test",
+            "source": "youtube_api",
+        },
+    )
+
+    resources = exercise_tool.build_video_resources(["Imported Shoulder Raise", "No Local Media"])
+
+    assert resources[0]["url"] == "https://example.com/shoulder-raise.mp4"
+    assert resources[0]["source"] == "wger"
+    assert resources[1]["url"] == "https://www.youtube.com/watch?v=test"
+
+
+def test_exercise_plan_payload_includes_teaching_fields() -> None:
+    payload = exercise_tool.build_exercise_plan_payload(
+        {
+            "name": "Seated Dumbbell Shoulder Press",
+            "target_muscle": ["shoulders", "front delts"],
+            "primary_muscles": ["shoulders"],
+            "secondary_muscles": ["triceps"],
+            "equipment": ["dumbbell", "bench"],
+            "movement_pattern": "vertical_push",
+            "difficulty": "beginner",
+            "notes": "Keep the ribs down and press without shrugging.",
+            "source": "wger",
+        },
+        sets=4,
+        reps="6-10",
+        focus="upper_shoulders",
+    )
+
+    assert payload["primary_muscles"] == ["shoulders"]
+    assert payload["coaching_cue"].startswith("Keep the ribs down")
+    assert "upper_shoulders" in payload["why_this_exercise"]
+    assert payload["common_mistake"]
+    assert payload["regression"]
+    assert payload["progression"]
+    assert payload["knowledge_source"] == "wger"
 
 
 def test_adjust_sets_changes_sets_only_and_keeps_exercise_count() -> None:

@@ -4,8 +4,10 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   AppState,
   DailyFeedbackPayload,
+  Exercise,
   FitnessPlan,
   GeneratePlanPayload,
+  VideoResource,
   WorkoutSession,
   generatePlan,
   getState,
@@ -69,6 +71,7 @@ export default function Home() {
   }, [state.profile_inputs]);
 
   const currentPlan = state.agent_result?.current_plan;
+  const videoResources = state.agent_result?.youtube_resources ?? [];
   const todaySession = useMemo(() => {
     const activeDate = state.active_date ?? state.agent_result?.current_date;
     return currentPlan?.workout_sessions?.find((session) => session.scheduled_date === activeDate);
@@ -308,7 +311,11 @@ export default function Home() {
         <div className="main-grid">
           <section className="panel">
             <h2>{todaySession ? sessionTitle(todaySession) : "No scheduled workout"}</h2>
-            {todaySession ? <WorkoutCard session={todaySession} /> : <p className="recovery-card">Create a plan to see today&apos;s workout.</p>}
+            {todaySession ? (
+              <WorkoutCard session={todaySession} videos={videoResources} />
+            ) : (
+              <p className="recovery-card">Create a plan to see today&apos;s workout.</p>
+            )}
           </section>
 
           <section className="panel">
@@ -325,7 +332,7 @@ export default function Home() {
               {currentPlan?.workout_sessions?.map((session) => (
                 <details key={`${session.scheduled_date}-${session.focus}`} className="accordion-item">
                   <summary>{sessionTitle(session)}</summary>
-                  <WorkoutCard session={session} compact />
+                  <WorkoutCard session={session} compact videos={videoResources} />
                 </details>
               ))}
             </div>
@@ -425,10 +432,21 @@ export default function Home() {
   );
 }
 
-function WorkoutCard({ session, compact = false }: { session: WorkoutSession; compact?: boolean }) {
+function WorkoutCard({
+  session,
+  compact = false,
+  videos = []
+}: {
+  session: WorkoutSession;
+  compact?: boolean;
+  videos?: VideoResource[];
+}) {
   if (session.is_cancelled) {
     return <p className="recovery-card">Workout cancelled. {session.safety_notes?.join(" ")}</p>;
   }
+
+  const exerciseNames = new Set((session.exercises ?? []).map((exercise) => normalizeName(exercise.name ?? "")));
+  const sessionVideos = videos.filter((video) => exerciseNames.has(normalizeName(video.exercise_name ?? "")));
 
   return (
     <div className={compact ? "workout-card compact" : "workout-card"}>
@@ -438,13 +456,60 @@ function WorkoutCard({ session, compact = false }: { session: WorkoutSession; co
         {session.exercises?.map((exercise) => (
           <li key={exercise.name}>
             <strong>{exercise.name}</strong>: {exercise.sets ?? 4} x {exercise.reps ?? "10-15"}
+            {!compact ? <ExerciseDetails exercise={exercise} /> : null}
           </li>
         ))}
       </ul>
       {session.cooldown?.length ? <p>Cooldown: {session.cooldown.join(", ")}</p> : null}
       {session.safety_notes?.length ? <p>Safety Notes: {session.safety_notes.join(" ")}</p> : null}
+      {sessionVideos.length ? (
+        <div className="video-list">
+          <h3>Video Resources</h3>
+          <ul>
+            {sessionVideos.map((video) => (
+              <li key={`${video.exercise_name}-${video.url}`}>
+                <a href={video.url} target="_blank" rel="noreferrer">
+                  {video.exercise_name}: {video.title ?? "demo"}
+                </a>
+                {video.source ? <span>{video.source}</span> : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function ExerciseDetails({ exercise }: { exercise: Exercise }) {
+  const muscles = exercise.primary_muscles?.length
+    ? exercise.primary_muscles.join(", ")
+    : exercise.target_muscle;
+  const details = [
+    muscles ? { label: "Target", value: muscles } : null,
+    exercise.why_this_exercise ? { label: "Why", value: exercise.why_this_exercise } : null,
+    exercise.coaching_cue ? { label: "Cue", value: exercise.coaching_cue } : null,
+    exercise.common_mistake ? { label: "Watch", value: exercise.common_mistake } : null,
+    exercise.regression ? { label: "Regression", value: exercise.regression } : null,
+    exercise.progression ? { label: "Progression", value: exercise.progression } : null
+  ].filter(Boolean) as { label: string; value: string }[];
+
+  if (!details.length) return null;
+
+  return (
+    <dl className="exercise-details">
+      {details.map((item) => (
+        <div key={item.label}>
+          <dt>{item.label}</dt>
+          <dd>{item.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function normalizeName(value: string) {
+  return value.trim().toLowerCase().replaceAll("-", "_").replaceAll(" ", "_");
 }
 
 function Nutrition({ plan }: { plan?: FitnessPlan }) {

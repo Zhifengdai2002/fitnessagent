@@ -125,6 +125,14 @@ class ExercisePlanItem(TypedDict, total=False):
     reps: str
     equipment: str
     notes: str
+    primary_muscles: list[str]
+    secondary_muscles: list[str]
+    coaching_cue: str
+    why_this_exercise: str
+    common_mistake: str
+    regression: str
+    progression: str
+    knowledge_source: str
 
 
 class WorkoutSession(TypedDict, total=False):

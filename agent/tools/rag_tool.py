@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Iterable
 
 from agent.rag.retriever import retrieve_exercises
-from agent.tools.exercise_tool import get_exercise_by_name, load_exercise_db
+from agent.tools.exercise_tool import get_exercise_by_name, load_all_exercise_db
 
 
 def _normalize(value: str) -> str:
@@ -98,7 +98,7 @@ def _fallback_search_similar_exercises(
     requested_level = _normalize(level) if level else ""
 
     scored: list[tuple[int, int, dict[str, Any]]] = []
-    for index, candidate in enumerate(load_exercise_db()):
+    for index, candidate in enumerate(load_all_exercise_db()):
         candidate_name = str(candidate.get("name", ""))
         if _normalize(candidate_name) in excluded_names:
             continue
