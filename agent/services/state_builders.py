@@ -16,8 +16,11 @@ def build_initial_state(
     thread_id: str,
     active_date: str,
     memory_store: dict[str, list[dict[str, Any]]],
+    session_state: dict[str, Any] | None = None,
+    previous_result: dict[str, Any] | None = None,
 ) -> FitnessAgentState:
     target_date = display_reference_date(active_date or profile_inputs.get("start_date", date.today().isoformat()))
+    result_context = previous_result or {}
     return {
         "thread_id": thread_id,
         "current_date": target_date,
@@ -61,7 +64,13 @@ def build_initial_state(
         },
         "latest_feedback": {},
         "daily_history": [],
-        "memory_context": memory_context_for_planning(memory_store, target_date),
+        "memory_context": memory_context_for_planning(
+            memory_store,
+            target_date,
+            profile_inputs=profile_inputs,
+            result=result_context,
+            session_state=session_state or {"thread_id": thread_id},
+        ),
     }
 
 
@@ -77,4 +86,3 @@ def display_reference_date(value: str) -> str:
         return datetime.fromisoformat(iso_value).date().isoformat()
     except ValueError:
         return date.today().isoformat()
-

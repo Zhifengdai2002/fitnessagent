@@ -6,11 +6,15 @@ import json
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
-from urllib.parse import quote_plus
 
+from agent.rag.documents import (
+    load_full_legacy_exercise_source,
+    load_local_exercise_fallback_source,
+    load_primary_exercise_documents_source,
+)
 
 DATA_PATH = Path(__file__).resolve().parents[2] / "data" / "exercise_db.json"
-EXTERNAL_DATA_PATH = Path(__file__).resolve().parents[2] / "data" / "external" / "wger_exercises.json"
+LOCAL_FALLBACK_SOURCES = {"", "local", "local_fallback"}
 
 
 def _normalize(value: str) -> str:
@@ -43,19 +47,16 @@ def load_exercise_db() -> list[dict[str, Any]]:
 def load_external_exercise_db() -> list[dict[str, Any]]:
     """Load optional imported exercise sources."""
 
-    if not EXTERNAL_DATA_PATH.exists():
-        return []
-    with EXTERNAL_DATA_PATH.open("r", encoding="utf-8") as file:
-        return json.load(file)
+    return load_primary_exercise_documents_source()
 
 
 @lru_cache(maxsize=1)
 def load_all_exercise_db() -> list[dict[str, Any]]:
-    """Return local curated exercises plus imported exercises, deduped by name."""
+    """Return planning sources, with local JSON kept as a tiny fallback only."""
 
     exercises: list[dict[str, Any]] = []
     seen_names: set[str] = set()
-    for exercise in [*load_exercise_db(), *load_external_exercise_db()]:
+    for exercise in [*load_external_exercise_db(), *load_local_exercise_fallback_source()]:
         name = str(exercise.get("name", "")).strip()
         if not name:
             continue
@@ -74,6 +75,9 @@ def get_exercise_by_id(exercise_id: str) -> dict[str, Any] | None:
     for exercise in load_all_exercise_db():
         if _normalize(exercise["id"]) == target_id:
             return exercise
+    for exercise in load_full_legacy_exercise_source():
+        if _normalize(str(exercise.get("id", ""))) == target_id:
+            return {**exercise, "source": exercise.get("source") or "local_fallback"}
     return None
 
 
@@ -84,6 +88,9 @@ def get_exercise_by_name(name: str) -> dict[str, Any] | None:
     for exercise in load_all_exercise_db():
         if _normalize(exercise["name"]) == target_name:
             return exercise
+    for exercise in load_full_legacy_exercise_source():
+        if _normalize(str(exercise.get("name", ""))) == target_name:
+            return {**exercise, "source": exercise.get("source") or "local_fallback"}
     return None
 
 
@@ -109,7 +116,7 @@ def find_exercises(
     difficulty_normalized = _normalize(difficulty) if difficulty else None
     training_goal_normalized = _normalize(training_goal) if training_goal else None
 
-    scored_matches: list[tuple[int, int, dict[str, Any]]] = []
+    scored_matches: list[tuple[int, int, int, dict[str, Any]]] = []
     for index, exercise in enumerate(load_all_exercise_db()):
         exercise_muscles = _normalize_many(exercise.get("target_muscle", []))
         exercise_focus_tags = _normalize_many(exercise.get("focus_tags", []))
@@ -134,10 +141,10 @@ def find_exercises(
             recommendation_tags=recommendation_tags,
             requested_recommendations=recommended_for_set,
         )
-        scored_matches.append((score, index, exercise))
+        scored_matches.append((_source_tier(exercise), score, index, exercise))
 
-    scored_matches.sort(key=lambda item: (-item[0], item[1]))
-    return [exercise for _, _, exercise in scored_matches[:limit]]
+    scored_matches.sort(key=lambda item: (item[0], -item[1], item[2]))
+    return _primary_first_exercises(scored_matches, limit)
 
 
 def build_exercise_plan_payload(
@@ -170,14 +177,14 @@ def build_exercise_teaching_fields(exercise: dict[str, Any], *, focus: str = "")
     name = str(exercise.get("name", "")).strip()
     primary = _as_list(exercise.get("primary_muscles") or exercise.get("target_muscle"))
     secondary = _as_list(exercise.get("secondary_muscles"))
-    equipment = _as_list(exercise.get("equipment"))
+    equipment = _clean_equipment_for_teaching(name, _as_list(exercise.get("equipment")))
     notes = str(exercise.get("notes", "")).strip()
     pattern = str(exercise.get("movement_pattern") or exercise.get("movement_type") or "").strip()
     difficulty = str(exercise.get("difficulty", "")).strip()
     source = str(exercise.get("source") or "local").strip()
     focus_label = focus or ", ".join(_as_list(exercise.get("focus_tags")))
     muscles_text = ", ".join(primary or _as_list(exercise.get("target_muscle")) or secondary)
-    equipment_text = ", ".join(equipment) or "available equipment"
+    equipment_text = ", ".join(equipment)
 
     coaching_cue = _first_sentence(notes) or _cue_for_pattern(pattern, name)
     return {
@@ -203,6 +210,28 @@ def _first_sentence(text: str) -> str:
         return ""
     parts = [part.strip() for part in text.replace("\n", " ").split(".") if part.strip()]
     return parts[0] + "." if parts else text.strip()
+
+
+def _clean_equipment_for_teaching(name: str, equipment: list[str]) -> list[str]:
+    """Avoid displaying misleading bodyweight defaults from sparse imports."""
+
+    normalized = {_normalize(item) for item in equipment}
+    name_key = _normalize(name)
+    if normalized == {"bodyweight"} and any(
+        term in name_key
+        for term in (
+            "chest_press",
+            "cable",
+            "machine",
+            "leg_press",
+            "bench_press",
+            "pulldown",
+            "pushdown",
+            "pec_deck",
+        )
+    ):
+        return []
+    return equipment
 
 
 def _cue_for_pattern(pattern: str, name: str) -> str:
@@ -308,61 +337,40 @@ def _difficulty_preference_score(requested: str, exercise: str) -> int:
     return 15 if distance == 1 else -10
 
 
+def _source_tier(exercise: dict[str, Any]) -> int:
+    """Return 0 for professional/RAG/API sources and 1 for local fallback."""
+
+    source = _normalize(str(exercise.get("source", "")))
+    return 1 if source in LOCAL_FALLBACK_SOURCES else 0
+
+
+def _primary_first_exercises(
+    scored_matches: list[tuple[int, int, int, dict[str, Any]]],
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Prefer external/RAG/API candidates; local JSON only fills gaps."""
+
+    primary = [exercise for tier, _, _, exercise in scored_matches if tier == 0]
+    if len(primary) >= limit:
+        return primary[:limit]
+    fallback = [exercise for tier, _, _, exercise in scored_matches if tier > 0]
+    return [*primary, *fallback[: max(0, limit - len(primary))]]
+
+
 def build_video_resources(exercise_names: Iterable[str]) -> list[dict[str, str]]:
     """Return lightweight video resource objects for planned exercises."""
 
-    from agent.tools.youtube_tool import search_youtube_video
+    from agent.services.video_backfill import backfill_video_resources
 
-    resources: list[dict[str, str]] = []
-    seen_names: set[str] = set()
+    display_names: list[str] = []
+    local_resources: dict[str, dict[str, object]] = {}
     for name in exercise_names:
         exercise = get_exercise_by_name(name)
         display_name = str(exercise.get("name") if exercise else name).strip()
-        if not display_name or _normalize(display_name) in seen_names:
+        if not display_name:
             continue
-        seen_names.add(_normalize(display_name))
+        display_names.append(display_name)
+        if exercise:
+            local_resources[_normalize(display_name)] = exercise
 
-        local_url = str((exercise or {}).get("youtube_url", "")).strip()
-        media_url = str((exercise or {}).get("media_url", "")).strip()
-        if local_url:
-            resources.append(
-                {
-                    "exercise_name": display_name,
-                    "title": f"{display_name} tutorial",
-                    "url": local_url,
-                    "source": "youtube",
-                }
-            )
-            continue
-        if media_url:
-            resources.append(
-                {
-                    "exercise_name": display_name,
-                    "title": f"{display_name} demo",
-                    "url": media_url,
-                    "source": str((exercise or {}).get("source", "exercise_media")),
-                }
-            )
-            continue
-
-        youtube_match = search_youtube_video(display_name)
-        if youtube_match:
-            resources.append(
-                {
-                    "exercise_name": display_name,
-                    "title": youtube_match["title"],
-                    "url": youtube_match["url"],
-                    "source": youtube_match["source"],
-                }
-            )
-            continue
-
-        resources.append(
-            {
-                "exercise_name": display_name,
-                "title": f"{display_name} exercise tutorial search",
-                "url": f"https://www.youtube.com/results?search_query={quote_plus(display_name + ' exercise tutorial proper form')}",
-                "source": "youtube_search",
-            }
-        )
-    return resources
+    return backfill_video_resources(display_names, local_resources=local_resources)

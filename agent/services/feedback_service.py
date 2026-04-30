@@ -147,6 +147,7 @@ def generate_next_cycle_after_feedback(
         thread_id=thread_id,
         active_date=target_date,
         memory_store=store,
+        previous_result=previous_result,
     )
     rollover_state: FitnessAgentState = {
         **base_state,
@@ -167,7 +168,13 @@ def generate_next_cycle_after_feedback(
         "daily_history": previous_result.get("daily_history", []),
         "feedback_history": previous_result.get("feedback_history", []),
         "state_history": previous_result.get("state_history", []),
-        "memory_context": memory_context_for_planning(store, target_date),
+        "memory_context": memory_context_for_planning(
+            store,
+            target_date,
+            profile_inputs=profile_inputs,
+            result=previous_result,
+            session_state={"thread_id": thread_id, "active_date": target_date},
+        ),
     }
     next_result = run_agent(rollover_state)
     next_result["daily_history"] = list(previous_result.get("daily_history", []))
@@ -367,6 +374,16 @@ def record_memory_daily_feedback(
         },
         unique_key="date",
     )
+    for index, exercise_feedback in enumerate(
+        exercise_feedback_items_from_daily_entry(feedback_date, daily_entry)
+    ):
+        store = append_memory_item(
+            store,
+            "exercise_feedback_records",
+            exercise_feedback,
+            unique_key="id",
+            limit=500,
+        )
     injury_areas = coerce_string_list(daily_entry.get("feedback", {}).get("injury_areas"), [])
     if injury_areas:
         for area in injury_areas:
@@ -390,6 +407,76 @@ def record_memory_daily_feedback(
     return store
 
 
+def exercise_feedback_items_from_daily_entry(
+    feedback_date: str,
+    daily_entry: dict[str, Any],
+) -> list[dict[str, Any]]:
+    completed_plan = daily_entry.get("completed_plan", {})
+    if not isinstance(completed_plan, dict):
+        completed_plan = {}
+    exercises = completed_plan.get("exercises", [])
+    if not isinstance(exercises, list):
+        exercises = []
+    completed_names = coerce_string_list(daily_entry.get("completed_actions"), [])
+    if not exercises and completed_names:
+        exercises = [{"name": name} for name in completed_names]
+
+    feedback = daily_entry.get("feedback", {})
+    if not isinstance(feedback, dict):
+        feedback = {}
+    status = str(daily_entry.get("status") or daily_history_status(completed_plan))
+    cycle_number = history_item_cycle_number(daily_entry)
+    focus = str(daily_entry.get("plan_focus") or completed_plan.get("focus") or "")
+    emoji = str(feedback.get("emoji") or "")
+    emoji_label = str(feedback.get("emoji_label") or FEELING_EMOJI_LABELS.get(emoji, ""))
+    workout_feeling = str(feedback.get("workout_feeling") or "")
+    injury_areas = coerce_string_list(feedback.get("injury_areas"), [])
+
+    rows: list[dict[str, Any]] = []
+    for index, exercise in enumerate(exercises):
+        if not isinstance(exercise, dict):
+            continue
+        name = str(exercise.get("name") or "").strip()
+        if not name:
+            continue
+        rows.append(
+            {
+                "id": f"{feedback_date}-{index}-{normalize_memory_key(name)}",
+                "date": feedback_date,
+                "cycle_number": cycle_number,
+                "exercise_name": name,
+                "focus": focus,
+                "sets": exercise.get("sets"),
+                "reps": exercise.get("reps"),
+                "status": "cancelled" if status == "cancelled" else "completed",
+                "feeling_emoji": emoji,
+                "emoji_label": emoji_label,
+                "workout_feeling": workout_feeling,
+                "injury_areas": injury_areas,
+                "source": "daily_feedback",
+            }
+        )
+    if not rows and status in {"cancelled", "no_scheduled"}:
+        rows.append(
+            {
+                "id": f"{feedback_date}-0-{status}",
+                "date": feedback_date,
+                "cycle_number": cycle_number,
+                "exercise_name": "",
+                "focus": focus,
+                "sets": None,
+                "reps": "",
+                "status": status,
+                "feeling_emoji": emoji,
+                "emoji_label": emoji_label,
+                "workout_feeling": workout_feeling,
+                "injury_areas": injury_areas,
+                "source": "daily_feedback",
+            }
+        )
+    return rows
+
+
 def same_iso_date(left: object, right: object) -> bool:
     left_date = safe_iso_date(left)
     right_date = safe_iso_date(right)
@@ -402,3 +489,7 @@ def coerce_string_list(value: Any, fallback: list[str]) -> list[str]:
     cleaned = [str(item).strip() for item in value if str(item).strip()]
     return cleaned or fallback
 
+
+def normalize_memory_key(value: str) -> str:
+    normalized = "".join(char.lower() for char in value if char.isalnum())
+    return normalized or "item"

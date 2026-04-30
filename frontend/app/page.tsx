@@ -471,7 +471,7 @@ function WorkoutCard({
                 <a href={video.url} target="_blank" rel="noreferrer">
                   {video.exercise_name}: {video.title ?? "demo"}
                 </a>
-                {video.source ? <span>{video.source}</span> : null}
+                {video.source ? <span>{video.cache_status === "hit" ? `${video.source} cache` : video.source}</span> : null}
               </li>
             ))}
           </ul>
@@ -491,7 +491,8 @@ function ExerciseDetails({ exercise }: { exercise: Exercise }) {
     exercise.coaching_cue ? { label: "Cue", value: exercise.coaching_cue } : null,
     exercise.common_mistake ? { label: "Watch", value: exercise.common_mistake } : null,
     exercise.regression ? { label: "Regression", value: exercise.regression } : null,
-    exercise.progression ? { label: "Progression", value: exercise.progression } : null
+    exercise.progression ? { label: "Progression", value: exercise.progression } : null,
+    exercise.knowledge_source ? { label: "Source", value: exercise.knowledge_source } : null
   ].filter(Boolean) as { label: string; value: string }[];
 
   if (!details.length) return null;

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Iterable
 
 from agent.rag.retriever import retrieve_exercises
+from agent.services.video_cache import get_cached_video_resource
 from agent.tools.exercise_tool import get_exercise_by_name, load_all_exercise_db
 
 
@@ -24,6 +25,7 @@ def search_similar_exercises(
     focus: str | None = None,
     level: str | None = None,
     exclude: Iterable[str] | None = None,
+    excluded_conditions: Iterable[str] | None = None,
     limit: int = 5,
 ) -> list[dict[str, Any]]:
     """Find same-type replacement exercises from the local RAG index."""
@@ -39,11 +41,20 @@ def search_similar_exercises(
         focus=focus,
         level=level,
         exclude=excluded_names,
+        excluded_conditions=excluded_conditions,
         source_exercise=source,
+        limit=max(limit * 4, 12),
+    )
+    rag_matches = rerank_replacement_candidates(
+        candidates=rag_matches,
+        source=source,
+        focus=focus,
+        level=level,
+        excluded_conditions=excluded_conditions,
         limit=limit,
     )
     if rag_matches:
-        return rag_matches[:limit]
+        return rag_matches
 
     return _fallback_search_similar_exercises(
         source=source,
@@ -51,8 +62,123 @@ def search_similar_exercises(
         focus=focus,
         level=level,
         exclude=exclude,
+        excluded_conditions=excluded_conditions,
         limit=limit,
     )
+
+
+def rerank_replacement_candidates(
+    *,
+    candidates: list[dict[str, Any]],
+    source: dict[str, Any],
+    focus: str | None,
+    level: str | None,
+    excluded_conditions: Iterable[str] | None = None,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    """Rerank replacement candidates with fitness-specific constraints."""
+
+    excluded_condition_set = _normalize_many(excluded_conditions)
+    scored: list[tuple[int, int, dict[str, Any]]] = []
+    for index, candidate in enumerate(candidates):
+        score = replacement_candidate_score(
+            candidate=candidate,
+            source=source,
+            focus=focus,
+            level=level,
+            excluded_conditions=excluded_condition_set,
+        )
+        if score <= 0:
+            continue
+        scored.append((score, index, candidate))
+
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return [candidate for _, _, candidate in scored[:limit]]
+
+
+def replacement_candidate_score(
+    *,
+    candidate: dict[str, Any],
+    source: dict[str, Any],
+    focus: str | None,
+    level: str | None,
+    excluded_conditions: set[str] | None = None,
+) -> int:
+    """Score how suitable one exercise is as a substitute."""
+
+    requested_focus = _normalize(focus) if focus else ""
+    candidate_focus = _normalize_many(candidate.get("focus_tags", []))
+    if requested_focus and requested_focus not in candidate_focus:
+        return -100
+
+    contraindications = _normalize_many(candidate.get("contraindications", []))
+    if excluded_conditions and contraindications.intersection(excluded_conditions):
+        return -100
+
+    score = 0
+    if requested_focus and requested_focus in candidate_focus:
+        score += 50
+
+    source_group = _canonical_replacement_group(source)
+    candidate_group = _canonical_replacement_group(candidate)
+    if source_group and candidate_group == source_group:
+        score += 45
+
+    source_pattern = _normalize(str(source.get("movement_pattern") or source.get("movement_type", "")))
+    candidate_pattern = _normalize(str(candidate.get("movement_pattern") or candidate.get("movement_type", "")))
+    if source_pattern and candidate_pattern == source_pattern:
+        score += 25
+
+    source_primary = _normalize_many(source.get("primary_muscles") or source.get("target_muscle", []))
+    candidate_primary = _normalize_many(candidate.get("primary_muscles") or candidate.get("target_muscle", []))
+    candidate_secondary = _normalize_many(candidate.get("secondary_muscles", []))
+    if source_primary and source_primary.intersection(candidate_primary):
+        score += 20
+    elif source_primary and source_primary.intersection(candidate_secondary):
+        score += 8
+
+    score += _level_score(_normalize(level) if level else "", _normalize(str(candidate.get("difficulty", ""))))
+
+    if _has_video_signal(candidate):
+        score += 10
+    return score
+
+
+def _has_video_signal(candidate: dict[str, Any]) -> bool:
+    """Reward known YouTube API video coverage without doing network lookup."""
+
+    name = str(candidate.get("name", "")).strip()
+    if not name:
+        return False
+    try:
+        cached = get_cached_video_resource(name)
+    except Exception:
+        return False
+    source = str((cached or {}).get("source") or "").strip().lower()
+    provider = str((cached or {}).get("provider") or "").strip().lower()
+    url = str((cached or {}).get("url") or "").strip().lower()
+    return source == "youtube_api" and (not provider or provider == "youtube") and (
+        "youtube.com/watch" in url or "youtu.be/" in url
+    )
+
+
+def _canonical_replacement_group(exercise: dict[str, Any]) -> str:
+    group = _normalize(str(exercise.get("replacement_group", "")))
+    pattern = _normalize(str(exercise.get("movement_pattern") or exercise.get("movement_type", "")))
+    aliases = {
+        "lat_pull": "vertical_pull",
+        "pull_up": "vertical_pull",
+        "pulldown": "vertical_pull",
+        "row_pattern": "row",
+        "horizontal_pull": "row",
+        "shoulder_abduction": "shoulder_raise",
+        "lateral_raise": "shoulder_raise",
+        "rear_delt_upper_back": "rear_delt_upper_back",
+        "squat": "squat_pattern",
+        "hinge_pattern": "hinge_glute",
+        "hip_hinge": "hinge_glute",
+    }
+    return aliases.get(group) or aliases.get(pattern) or group or pattern
 
 
 def build_exercise_retrieval_query(
@@ -84,55 +210,27 @@ def _fallback_search_similar_exercises(
     focus: str | None = None,
     level: str | None = None,
     exclude: Iterable[str] | None = None,
+    excluded_conditions: Iterable[str] | None = None,
     limit: int = 5,
 ) -> list[dict[str, Any]]:
     """Original metadata-only search kept as a fallback."""
 
     excluded_names = {_normalize(exercise_name), *_normalize_many(exclude)}
-    source_focus = _normalize_many(source.get("focus_tags", []))
-    requested_focus = {_normalize(focus)} if focus else set()
-    source_muscles = _normalize_many(source.get("primary_muscles") or source.get("target_muscle", []))
-    source_secondary = _normalize_many(source.get("secondary_muscles", []))
-    source_group = _normalize(str(source.get("replacement_group", "")))
-    source_pattern = _normalize(str(source.get("movement_pattern") or source.get("movement_type", "")))
-    requested_level = _normalize(level) if level else ""
-
-    scored: list[tuple[int, int, dict[str, Any]]] = []
+    candidates: list[dict[str, Any]] = []
     for index, candidate in enumerate(load_all_exercise_db()):
         candidate_name = str(candidate.get("name", ""))
         if _normalize(candidate_name) in excluded_names:
             continue
+        candidates.append(candidate)
 
-        candidate_focus = _normalize_many(candidate.get("focus_tags", []))
-        if requested_focus and candidate_focus and not requested_focus.intersection(candidate_focus):
-            continue
-
-        score = 0
-        candidate_group = _normalize(str(candidate.get("replacement_group", "")))
-        candidate_pattern = _normalize(str(candidate.get("movement_pattern") or candidate.get("movement_type", "")))
-        candidate_muscles = _normalize_many(candidate.get("primary_muscles") or candidate.get("target_muscle", []))
-        candidate_secondary = _normalize_many(candidate.get("secondary_muscles", []))
-
-        if source_group and candidate_group == source_group:
-            score += 60
-        if source_pattern and candidate_pattern == source_pattern:
-            score += 35
-        if source_focus and source_focus.intersection(candidate_focus):
-            score += 25
-        if source_muscles and source_muscles.intersection(candidate_muscles):
-            score += 20
-        if source_muscles and source_muscles.intersection(candidate_secondary):
-            score += 8
-        if source_secondary and source_secondary.intersection(candidate_muscles | candidate_secondary):
-            score += 5
-        score += _level_score(requested_level, _normalize(str(candidate.get("difficulty", ""))))
-
-        if score <= 0:
-            continue
-        scored.append((score, index, candidate))
-
-    scored.sort(key=lambda item: (-item[0], item[1]))
-    return [candidate for _, _, candidate in scored[:limit]]
+    return rerank_replacement_candidates(
+        candidates=candidates,
+        source=source,
+        focus=focus,
+        level=level,
+        excluded_conditions=excluded_conditions,
+        limit=limit,
+    )
 
 
 def _level_score(requested: str, candidate: str) -> int:

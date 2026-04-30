@@ -55,4 +55,7 @@ def search_youtube_video(exercise_name: str) -> dict[str, str] | None:
         "title": str(title),
         "url": f"https://www.youtube.com/watch?v={video_id}",
         "source": "youtube_api",
+        "provider": "youtube",
+        "video_id": str(video_id),
+        "channel_title": str(item.get("snippet", {}).get("channelTitle") or ""),
     }

@@ -43,7 +43,7 @@ This structure makes the app closer to a real coaching system than a one-shot pl
 - **Agent Workflow:** LangGraph
 - **LLM:** Zhipu-compatible chat API
 - **Persistence:** MySQL with JSON fallback
-- **Knowledge Tools:** local exercise database, optional wger exercise import, food database, lightweight vector RAG, YouTube resource lookup
+- **Knowledge Tools:** local exercise database, optional wger exercise import, food database, Milvus-ready vector RAG with local fallback, YouTube resource lookup
 - **Language:** Python, TypeScript
 
 ## Current Architecture
@@ -95,6 +95,33 @@ Optional wger import:
 
 ```bash
 .venv/bin/python -m agent.rag.wger_importer --limit 200 --max-pages 3
+```
+
+Optional Milvus RAG backend:
+
+```bash
+docker compose up -d milvus-etcd milvus-minio milvus-standalone
+```
+
+Set these in `.env`:
+
+```env
+RAG_BACKEND=milvus
+MILVUS_URI=http://127.0.0.1:19530
+MILVUS_EXERCISE_COLLECTION=fitness_exercises
+MILVUS_FOOD_COLLECTION=fitness_foods
+```
+
+Build the exercise and food vector collections:
+
+```bash
+.venv/bin/python -m agent.rag.milvus_indexer --recreate
+```
+
+Run the optional real Milvus integration test:
+
+```bash
+RUN_MILVUS_INTEGRATION=1 .venv/bin/python -m pytest tests/test_milvus_integration.py -q
 ```
 
 ## Disclaimer

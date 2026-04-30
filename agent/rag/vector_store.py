@@ -17,6 +17,8 @@ from typing import Any
 
 INDEX_DIR = Path(__file__).resolve().parents[2] / "data" / "rag_index"
 EXERCISE_INDEX_PATH = INDEX_DIR / "exercise_index.json"
+FOOD_INDEX_PATH = INDEX_DIR / "food_index.json"
+INDEX_VERSION = 3
 EMBEDDING_DIMENSIONS = 384
 
 
@@ -34,7 +36,7 @@ def build_index(documents: list[dict[str, Any]], index_path: Path = EXERCISE_IND
             }
         )
     index = {
-        "version": 1,
+        "version": INDEX_VERSION,
         "embedding": "hashing-bow-v1",
         "dimensions": EMBEDDING_DIMENSIONS,
         "documents": indexed_documents,
@@ -158,6 +160,19 @@ SYNONYMS = {
     "row": ["pull"],
     "squat": ["knee", "lower"],
     "hinge": ["hip", "posterior"],
+    "protein": ["lean", "muscle", "satiety"],
+    "carb": ["carbohydrate", "energy"],
+    "carbs": ["carbohydrate", "energy"],
+    "fat": ["healthy", "oil", "nuts"],
+    "vegetable": ["veggie", "fiber", "volume"],
+    "fruit": ["snack", "fiber"],
+    "vegan": ["plant", "plantbased"],
+    "vegetarian": ["plant"],
+    "allergy": ["allergen", "avoid"],
+    "fish": ["seafood"],
+    "shellfish": ["seafood"],
+    "milk": ["dairy"],
+    "gluten": ["wheat"],
 }
 
 HIGH_VALUE_TOKENS = {
@@ -178,4 +193,16 @@ HIGH_VALUE_TOKENS = {
     "hinge",
     "press",
     "row",
+    "protein",
+    "carb",
+    "carbs",
+    "fat",
+    "fruit",
+    "vegetable",
+    "vegan",
+    "vegetarian",
+    "high",
+    "fiber",
+    "low",
+    "calorie",
 }

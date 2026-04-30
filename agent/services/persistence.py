@@ -9,10 +9,16 @@ from pathlib import Path
 from typing import Any
 
 from agent.services.mysql_store import (
+    DEMO_USER_ID,
     delete_state_from_mysql,
     is_mysql_configured,
     load_state_from_mysql,
     save_state_to_mysql,
+)
+from agent.services.redis_store import (
+    delete_state_from_redis,
+    load_state_from_redis,
+    save_state_to_redis,
 )
 
 APP_STATE_PATH = Path(__file__).resolve().parents[2] / "data" / "app_state.json"
@@ -26,15 +32,21 @@ PERSISTED_SESSION_KEYS = [
     "daily_history",
     "memory_store",
     "assistant_chat_messages",
+    "conversation_summary",
     "last_feedback_summary",
     "last_action_message",
 ]
 
 
 def load_app_state(path: Path = APP_STATE_PATH) -> dict[str, Any]:
+    redis_payload = load_state_from_redis(DEMO_USER_ID)
+    if redis_payload:
+        return redis_payload
+
     if is_mysql_configured():
         payload = load_state_from_mysql()
         if payload:
+            save_state_to_redis(payload, DEMO_USER_ID)
             return payload
 
     if not path.exists():
@@ -52,6 +64,7 @@ def save_app_state(session_state: dict[str, Any], path: Path = APP_STATE_PATH) -
         for key in PERSISTED_SESSION_KEYS
     }
     payload["active_date"] = safe_iso_date(payload.get("active_date")) or date.today().isoformat()
+    save_state_to_redis(payload, DEMO_USER_ID)
     if save_state_to_mysql(payload):
         return
 
@@ -63,6 +76,7 @@ def save_app_state(session_state: dict[str, Any], path: Path = APP_STATE_PATH) -
 
 
 def delete_app_state(path: Path = APP_STATE_PATH) -> None:
+    delete_state_from_redis(DEMO_USER_ID)
     delete_state_from_mysql()
     try:
         path.unlink(missing_ok=True)

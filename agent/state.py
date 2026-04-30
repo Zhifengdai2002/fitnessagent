@@ -208,6 +208,10 @@ class VideoResource(TypedDict, total=False):
     title: str
     url: str
     source: str
+    provider: str
+    video_id: str
+    channel_title: str
+    cache_status: str
 
 
 class KnowledgeReference(TypedDict, total=False):

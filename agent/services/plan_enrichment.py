@@ -8,6 +8,18 @@ from typing import Any
 from agent.tools import build_exercise_plan_payload, build_video_resources, get_exercise_by_name
 
 
+TEACHING_FIELD_KEYS = {
+    "primary_muscles",
+    "secondary_muscles",
+    "coaching_cue",
+    "why_this_exercise",
+    "common_mistake",
+    "regression",
+    "progression",
+    "knowledge_source",
+}
+
+
 def hydrate_agent_result_for_display(result: dict[str, Any]) -> dict[str, Any]:
     """Backfill exercise teaching fields and videos for persisted plans."""
 
@@ -44,12 +56,13 @@ def hydrate_agent_result_for_display(result: dict[str, Any]) -> dict[str, Any]:
 
 
 def _hydrate_exercise(exercise: dict[str, Any], *, focus: str) -> dict[str, Any]:
-    if _has_teaching_fields(exercise):
-        return dict(exercise)
-
     exercise_name = str(exercise.get("name", "")).strip()
     source_exercise = get_exercise_by_name(exercise_name)
     if not source_exercise:
+        return dict(exercise)
+
+    stale_teaching = _has_stale_teaching_fields(exercise, source_exercise)
+    if _has_teaching_fields(exercise) and not stale_teaching:
         return dict(exercise)
 
     hydrated = build_exercise_plan_payload(
@@ -62,6 +75,8 @@ def _hydrate_exercise(exercise: dict[str, Any], *, focus: str) -> dict[str, Any]
 
     for key, value in exercise.items():
         if value not in (None, "", []):
+            if stale_teaching and key in TEACHING_FIELD_KEYS:
+                continue
             hydrated[key] = value
     return hydrated
 
@@ -72,6 +87,42 @@ def _has_teaching_fields(exercise: dict[str, Any]) -> bool:
         and exercise.get("coaching_cue")
         and exercise.get("common_mistake")
     )
+
+
+def _has_stale_teaching_fields(
+    exercise: dict[str, Any], source_exercise: dict[str, Any]
+) -> bool:
+    """Detect persisted teaching fields that conflict with newer knowledge."""
+
+    coaching_cue = str(exercise.get("coaching_cue") or "").strip()
+    if coaching_cue in {".", "-", "N/A"}:
+        return True
+
+    why = str(exercise.get("why_this_exercise") or "").strip().lower()
+    if not why:
+        return True
+
+    source_equipment = {
+        str(item).strip().lower().replace("-", "_").replace(" ", "_")
+        for item in _as_list(source_exercise.get("equipment"))
+    }
+    if "works with bodyweight" in why and source_equipment - {"bodyweight"}:
+        return True
+
+    source = str(source_exercise.get("source") or "").strip().lower()
+    existing_source = str(exercise.get("knowledge_source") or "").strip().lower()
+    if source and existing_source and source != existing_source:
+        return True
+
+    return False
+
+
+def _as_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str) and value.strip():
+        return [item.strip() for item in value.split(",") if item.strip()]
+    return []
 
 
 def _coerce_int(value: Any, *, default: int) -> int:

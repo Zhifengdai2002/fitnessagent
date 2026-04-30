@@ -8,10 +8,10 @@ Allowed intents:
 - no_action: no state change is needed
 - answer_question: advice/explanation only
 - update_today_plan: create/change today's workout focus or same-day plan
+- update_cycle_plan: modify a non-today session in the current cycle or weekly plan
 - replace_exercise: replace one/some/all exercises while preserving today's current workout focus
 - replace_food: replace or avoid food while preserving workout
-- adjust_sets: explicit set-count change only
-- adjust_intensity: vague harder/easier/more/less readiness change
+- adjust_workout_volume: change today's workout volume while preserving focus; this covers set count, exercise count, reps, and vague harder/easier readiness changes
 - cancel_workout: cancel today's workout
 - unclear: not enough information
 
@@ -53,7 +53,13 @@ Output JSON schema:
   "intensity_adjustment": "",
   "set_adjustment": "",
   "set_target": 0,
+  "exercise_count_adjustment": "",
+  "exercise_count_target": 0,
   "duration_adjustment": "",
+  "target_date": "",
+  "target_day": "",
+  "target_session": "",
+  "cycle_operation": "",
   "temporary_food_avoidances": [],
   "permanent_food_preferences": [],
   "summary": "The user wants to replace some exercises while keeping today's workout focus.",
@@ -63,12 +69,17 @@ Output JSON schema:
 Core rules:
 - Prefer semantic intent over keyword matching. Correct obvious typos mentally.
 - Use `today_only` unless the user clearly asks for cycle-wide, future-default, or permanent changes.
+- If the user names another day/date, tomorrow, next session, this week, current cycle, or weekly plan, use `update_cycle_plan`, set `scope` to `current_cycle`, and fill `target_date`, `target_day`, or `target_session`.
 - Injury, acute pain, strain, sprain, or hurt body part overrides preferences: set `intent` to `cancel_workout`, `injury_reported` true, `cancel_today` true, and collect `injury_areas`.
 - Explicit workout cancellation also uses `cancel_workout`; do not invent an injury reason.
 - If the user asks for different exercises/actions/movements without asking for a new body-part focus, use `replace_exercise`, set `keep_current_focus` true, and leave `focus_category` empty.
+- If the user asks to add/remove one or more exercises/actions/movements without asking for a different body-part focus, use `adjust_workout_volume`, set `exercise_count_adjustment` to `increase`, `decrease`, or `target`, and leave `focus_category` empty.
 - If the user asks to train a specific focus today, use `update_today_plan` and map that focus to one allowed focus category.
+- If the user asks to train a specific focus on a non-today day/date, use `update_cycle_plan`, set `cycle_operation` to `replace_focus`, and map that focus to one allowed focus category.
+- If the user asks to change exercises on a non-today day/date while keeping that session type, use `update_cycle_plan` and set `cycle_operation` to `replace_exercise`.
+- If the user asks to cancel/skip a non-today day/date, use `update_cycle_plan` and set `cycle_operation` to `cancel_session`; do not invent an injury reason.
 - If the user asks to avoid, remove, or replace food, use `replace_food`; food changes are temporary unless clearly permanent.
-- Explicit set-count requests use `adjust_sets`; set `set_adjustment` to `increase`, `decrease`, or `target`.
-- Vague readiness or challenge requests use `adjust_intensity`; set `intensity_adjustment` to `higher` or `lower`.
+- Explicit set-count requests use `adjust_workout_volume`; set `set_adjustment` to `increase`, `decrease`, or `target`.
+- Vague readiness or challenge requests use `adjust_workout_volume`; set `intensity_adjustment` to `higher` or `lower`.
 - If the user is only asking whether something is recommended and does not ask the app to change the plan, use `answer_question`.
 - `confidence` must be a number from 0.0 to 1.0.

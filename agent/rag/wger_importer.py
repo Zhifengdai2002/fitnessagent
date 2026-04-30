@@ -109,7 +109,7 @@ def normalize_wger_exercises(items: list[dict[str, Any]]) -> list[dict[str, Any]
         category = nested_name(item.get("category"))
         primary_muscles = names_from_list(item.get("muscles"))
         secondary_muscles = names_from_list(item.get("muscles_secondary"))
-        equipment = names_from_list(item.get("equipment")) or ["bodyweight"]
+        equipment = names_from_list(item.get("equipment")) or infer_equipment_from_name(name=name, category=category)
         target_muscle = primary_muscles or secondary_muscles or muscle_hints_from_name(name)
         movement_pattern = infer_movement_pattern(name=name, category=category)
         movement_type = infer_movement_type(movement_pattern, category)
@@ -296,6 +296,40 @@ def infer_difficulty(*, name: str, equipment: list[str], movement_pattern: str) 
     if movement_pattern in {"conditioning", "core"} or equipment == ["bodyweight"]:
         return "beginner"
     return "intermediate"
+
+
+def infer_equipment_from_name(*, name: str, category: str = "") -> list[str]:
+    """Infer likely equipment when wger omits it.
+
+    wger records are useful but some exerciseinfo entries have empty equipment
+    lists. Treating all empty equipment as bodyweight makes the coach explain
+    cable and machine movements incorrectly, so we infer only conservative,
+    name-obvious cases before falling back to bodyweight.
+    """
+
+    text = normalize_text(f"{name} {category}")
+    equipment: list[str] = []
+    if any(term in text for term in ["cable", "pulley", "pushdown", "lat pulldown", "woodchop"]):
+        equipment.append("cable_machine")
+    if any(term in text for term in ["machine", "chest press", "leg press", "pec deck"]):
+        equipment.append("machine")
+    if any(term in text for term in ["dumbbell", "db "]):
+        equipment.append("dumbbell")
+    if any(term in text for term in ["barbell", "bench press", "deadlift"]):
+        equipment.append("barbell")
+    if any(term in text for term in ["bench press", "incline", "decline", "bench"]):
+        equipment.append("bench")
+    if any(term in text for term in ["kettlebell"]):
+        equipment.append("kettlebell")
+    if any(term in text for term in ["band", "resistance band"]):
+        equipment.append("resistance_band")
+    if any(term in text for term in ["medicine ball", "slam"]):
+        equipment.append("medicine_ball")
+    if any(term in text for term in ["sled"]):
+        equipment.append("sled")
+    if equipment:
+        return list(dict.fromkeys(equipment))
+    return ["bodyweight"]
 
 
 def infer_contraindications(*, name: str, movement_pattern: str) -> list[str]:

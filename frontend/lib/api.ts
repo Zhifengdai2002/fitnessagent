@@ -47,6 +47,8 @@ export type VideoResource = {
   title?: string;
   url?: string;
   source?: string;
+  provider?: string;
+  cache_status?: string;
 };
 
 export type MealSuggestion = {

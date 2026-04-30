@@ -53,3 +53,32 @@ def test_normalize_wger_prefers_english_translation() -> None:
 
     assert normalized[0]["name"] == "Tricep Pushdown on Cable"
     assert normalized[0]["notes"] == "EN"
+
+
+def test_normalize_wger_infers_obvious_equipment_when_missing() -> None:
+    normalized = normalize_wger_exercises(
+        [
+            {
+                "id": 901,
+                "translations": [
+                    {"language": 2, "name": "Cable Fly Upper Chest", "description": "Use a controlled arc."},
+                ],
+                "category": {"name": "Chest"},
+                "muscles": [{"name_en": "Chest"}],
+                "equipment": [],
+            },
+            {
+                "id": 902,
+                "translations": [
+                    {"language": 2, "name": "Chest Press", "description": "Press with control."},
+                ],
+                "category": {"name": "Chest"},
+                "muscles": [{"name_en": "Chest"}],
+                "equipment": [],
+            },
+        ]
+    )
+
+    by_name = {exercise["name"]: exercise for exercise in normalized}
+    assert by_name["Cable Fly Upper Chest"]["equipment"] == ["cable_machine"]
+    assert by_name["Chest Press"]["equipment"] == ["machine"]

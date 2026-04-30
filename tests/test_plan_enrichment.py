@@ -57,3 +57,35 @@ def test_hydrate_agent_result_preserves_existing_exercise_values() -> None:
     assert exercise["sets"] == 5
     assert exercise["reps"] == "8-12"
     assert exercise["notes"] == "Keep the reps smooth."
+
+
+def test_hydrate_agent_result_refreshes_stale_teaching_fields() -> None:
+    result = {
+        "current_plan": {
+            "workout_sessions": [
+                {
+                    "focus": "Lower Body (Legs + Glutes)",
+                    "exercises": [
+                        {
+                            "name": "Leg Press",
+                            "sets": 4,
+                            "reps": "6-10",
+                            "why_this_exercise": "Leg Press fits the lower body focus, works with bodyweight.",
+                            "coaching_cue": ".",
+                            "common_mistake": "Rushing depth while the knees cave inward.",
+                            "knowledge_source": "local",
+                        }
+                    ],
+                }
+            ]
+        }
+    }
+
+    hydrated = hydrate_agent_result_for_display(result)
+    exercise = hydrated["current_plan"]["workout_sessions"][0]["exercises"][0]
+
+    assert exercise["sets"] == 4
+    assert exercise["reps"] == "6-10"
+    assert "works with bodyweight" not in exercise["why_this_exercise"]
+    assert exercise["coaching_cue"] != "."
+    assert exercise["knowledge_source"] in {"wger", "curated_rag"}

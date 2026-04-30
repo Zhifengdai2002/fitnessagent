@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from agent.llm import call_model_json, load_prompt
 from agent.rag.retriever import retrieve_exercises
+from agent.services.preference_scoring import learned_preferences_from_context
 from agent.state import FitnessAgentState, FitnessPlan, MealSuggestion, WorkoutSession
 from agent.tools import (
     build_exercise_plan_payload,
@@ -122,6 +123,8 @@ def plan_generation_node(state: FitnessAgentState) -> FitnessAgentState:
     goals = state.get("goals", {})
     current_state = state.get("current_state", {})
     latest_feedback = state.get("latest_feedback", {})
+    memory_context = state.get("memory_context", {})
+    learned_preferences = learned_preferences_from_context(memory_context)
 
     sessions_per_week = max(3, min(int(constraints.get("sessions_per_week", 3)), 5))
     cycle_slots = _resolve_cycle_slots(
@@ -160,6 +163,7 @@ def plan_generation_node(state: FitnessAgentState) -> FitnessAgentState:
             equipment_access=equipment_access,
             excluded_conditions=excluded_conditions,
             excluded_exercises=constraints.get("excluded_exercises", []),
+            learned_preferences=learned_preferences,
             exercise_count_delta=_exercise_count_delta_for_intensity(
                 fitness_level,
                 intensity_adjustment if slot["scheduled_date"] == target_date else "",
@@ -177,16 +181,18 @@ def plan_generation_node(state: FitnessAgentState) -> FitnessAgentState:
         training_goal=training_goal,
         equipment_access=equipment_access,
         excluded_conditions=excluded_conditions,
+        learned_preferences=learned_preferences,
         exercise_count_delta=_exercise_count_delta_for_intensity(fitness_level, intensity_adjustment),
         intensity_adjustment=intensity_adjustment,
     )
 
-    nutrition_candidate_pool = _build_food_candidates(constraints)
+    nutrition_candidate_pool = _build_food_candidates(constraints, learned_preferences=learned_preferences)
     fallback_nutrition_targets = _build_nutrition_targets(user_profile, goals, current_state)
     fallback_meal_suggestions = _build_meal_suggestions(
         goals=goals,
         constraints=constraints,
         nutrition_targets=fallback_nutrition_targets,
+        learned_preferences=learned_preferences,
     )
     fallback_coaching_focus = _build_coaching_focus(latest_feedback, training_goal)
     fallback_recovery_actions = _build_recovery_actions(current_state, latest_feedback, excluded_conditions)
@@ -696,6 +702,7 @@ def _with_ad_hoc_today_blueprint(
     excluded_conditions: list[str],
     exercise_count_delta: int,
     intensity_adjustment: str = "",
+    learned_preferences: dict | None = None,
 ) -> list[dict]:
     current_date_iso = _safe_date_string(current_date)
     if not requested_focus or not current_date_iso:
@@ -720,6 +727,7 @@ def _with_ad_hoc_today_blueprint(
         equipment_access=equipment_access,
         excluded_conditions=excluded_conditions,
         excluded_exercises=constraints.get("excluded_exercises", []),
+        learned_preferences=learned_preferences,
         exercise_count_delta=exercise_count_delta,
         intensity_adjustment=intensity_adjustment,
     )
@@ -1067,6 +1075,7 @@ def _build_workout_session(
     excluded_conditions: list[str],
     excluded_exercises: list[str],
     exercise_count_delta: int = 0,
+    learned_preferences: dict | None = None,
 ) -> WorkoutSession:
     """Legacy heuristic session builder retained as a fallback template."""
 
@@ -1081,6 +1090,7 @@ def _build_workout_session(
         equipment_access=equipment_access,
         excluded_conditions=excluded_conditions,
         excluded_exercises=excluded_exercises,
+        learned_preferences=learned_preferences,
         limit=_exercise_count_for_level(fitness_level, exercise_count_delta),
     )
     filtered_exercises = [
@@ -1139,6 +1149,7 @@ def _build_session_blueprint(
     equipment_access: list[str],
     excluded_conditions: list[str],
     excluded_exercises: list[str],
+    learned_preferences: dict | None = None,
     exercise_count_delta: int = 0,
     intensity_adjustment: str = "",
 ) -> dict:
@@ -1155,6 +1166,7 @@ def _build_session_blueprint(
         equipment_access=equipment_access,
         excluded_conditions=excluded_conditions,
         excluded_exercises=excluded_exercises,
+        learned_preferences=learned_preferences,
         limit=candidate_limit,
     )
     filtered_candidates = [
@@ -1217,6 +1229,7 @@ def _build_session_blueprint(
             excluded_conditions=excluded_conditions,
             excluded_exercises=excluded_exercises,
             exercise_count_delta=exercise_count_delta,
+            learned_preferences=learned_preferences,
         )
         filtered_candidates = [
             {
@@ -1248,7 +1261,7 @@ def _build_session_blueprint(
     }
 
 
-def _build_food_candidates(constraints: dict) -> list[dict]:
+def _build_food_candidates(constraints: dict, *, learned_preferences: dict | None = None) -> list[dict]:
     dietary_preferences = constraints.get("dietary_preferences", [])
     food_allergies = constraints.get("food_allergies", [])
     categories = ["protein", "carb", "fruit", "vegetable", "fat"]
@@ -1258,6 +1271,7 @@ def _build_food_candidates(constraints: dict) -> list[dict]:
             category=category,
             diet_tags=dietary_preferences or None,
             excluded_allergens=food_allergies,
+            learned_preferences=learned_preferences,
             limit=4,
         )
         for food in foods:
@@ -1285,6 +1299,7 @@ def _retrieve_plan_exercise_candidates(
     excluded_conditions: list[str],
     excluded_exercises: list[str],
     limit: int,
+    learned_preferences: dict | None = None,
 ) -> list[dict]:
     """Return exercise candidates for planning, preferring the local RAG index."""
 
@@ -1301,6 +1316,7 @@ def _retrieve_plan_exercise_candidates(
         level=fitness_level,
         exclude=excluded_exercises,
         excluded_conditions=excluded_conditions,
+        learned_preferences=learned_preferences,
         limit=limit,
     )
     candidates = _filter_plan_exercise_candidates(candidates, excluded_exercises)
@@ -1700,7 +1716,13 @@ def _build_nutrition_targets(user_profile: dict, goals: dict, current_state: dic
     }
 
 
-def _build_meal_suggestions(*, goals: dict, constraints: dict, nutrition_targets: dict) -> list[MealSuggestion]:
+def _build_meal_suggestions(
+    *,
+    goals: dict,
+    constraints: dict,
+    nutrition_targets: dict,
+    learned_preferences: dict | None = None,
+) -> list[MealSuggestion]:
     primary_goal = _map_goal_tag(str(goals.get("primary_goal", "weight_loss")))
     dietary_preferences = constraints.get("dietary_preferences", [])
     food_allergies = constraints.get("food_allergies", [])
@@ -1710,17 +1732,20 @@ def _build_meal_suggestions(*, goals: dict, constraints: dict, nutrition_targets
         diet_tags=dietary_preferences or None,
         excluded_allergens=food_allergies,
         min_protein_g=10,
+        learned_preferences=learned_preferences,
         limit=3,
     )
     carb_pool = find_foods(
         category="carb",
         diet_tags=[tag for tag in dietary_preferences if tag in {"vegan", "gluten_free"}] or None,
         excluded_allergens=food_allergies,
+        learned_preferences=learned_preferences,
         limit=3,
     )
     fruit_pool = find_foods(
         category="fruit",
         excluded_allergens=food_allergies,
+        learned_preferences=learned_preferences,
         limit=2,
     )
 

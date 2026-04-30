@@ -6,37 +6,46 @@ Choose exactly one tool. Prefer the normalized intent and `fallback_tool_call`; 
 
 Allowed tool_name values:
 - cancel_workout
-- adjust_sets
-- adjust_intensity
+- adjust_workout_volume
 - replace_exercise
 - replace_food
 - update_today_plan
+- update_cycle_plan
 - no_action
 
 Tool mapping:
 - `cancel_workout` -> cancel_workout
-- `adjust_sets` -> adjust_sets
-- `adjust_intensity` -> adjust_intensity
+- set changes, reps/intensity changes, and add/remove exercise count -> adjust_workout_volume
 - `replace_exercise` -> replace_exercise
 - `replace_food` -> replace_food
 - `update_today_plan` -> update_today_plan
+- non-today day/date, next-session, weekly-plan, or current-cycle changes -> update_cycle_plan
 - `answer_question`, `no_action`, or `unclear` -> no_action unless app state must change
 
 Safety and policy:
 - Injury or acute pain must cancel today's workout.
 - Explicit set changes are bounded to 3-5 sets and must not change exercise count.
+- Explicit exercise-count changes must preserve today's current focus and existing sets/reps.
+- Vague higher/lower intensity changes may adjust reps and notes; add/remove exercises only when the normalized request includes an exercise-count adjustment.
 - Same-focus exercise replacement must keep today's current focus, sets, and reps.
+- Cycle plan edits must target only the named non-today day/date/session and preserve other cycle sessions.
 - Food replacement must not change workout content.
 
 Schema:
 {
-  "tool_name": "cancel_workout|adjust_sets|adjust_intensity|replace_exercise|replace_food|update_today_plan|no_action",
+  "tool_name": "cancel_workout|adjust_workout_volume|replace_exercise|replace_food|update_today_plan|update_cycle_plan|no_action",
   "arguments": {
     "intensity_adjustment": "higher|lower|",
     "set_adjustment": "increase|decrease|target|",
     "set_target": 0,
+    "exercise_count_adjustment": "increase|decrease|target|",
+    "exercise_count_target": 0,
     "target": "",
-    "replacement_preference": ""
+    "replacement_preference": "",
+    "target_date": "",
+    "target_day": "",
+    "target_session": "",
+    "cycle_operation": "replace_focus|replace_exercise|adjust_volume|cancel_session"
   },
   "summary": "short action summary",
   "confidence": 0.0

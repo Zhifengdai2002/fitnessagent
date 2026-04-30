@@ -13,7 +13,12 @@ from agent.services.feedback_service import (
     generate_next_cycle_after_feedback,
     record_daily_feedback_and_advance,
 )
-from agent.services.memory import default_memory_store, normalize_memory_store
+from agent.services.memory import (
+    compact_conversation_memory,
+    default_memory_store,
+    memory_context_for_planning,
+    normalize_memory_store,
+)
 from agent.services.persistence import (
     PERSISTED_SESSION_KEYS,
     delete_app_state,
@@ -66,6 +71,7 @@ def generate_plan(request: GeneratePlanRequest) -> dict[str, Any]:
             thread_id=session_state["thread_id"],
             active_date=session_state.get("active_date", profile_inputs["start_date"]),
             memory_store=session_state.get("memory_store", default_memory_store()),
+            session_state=session_state,
         )
         result = run_agent(initial_state)
         session_state["agent_result"] = result
@@ -92,6 +98,13 @@ def chat(message: str) -> tuple[str, dict[str, Any]]:
         messages = session_state.setdefault("assistant_chat_messages", [])
         messages.append({"role": "user", "content": user_message})
         messages.append({"role": "assistant", "content": reply})
+        summary, window = compact_conversation_memory(
+            messages,
+            session_state.get("conversation_summary", ""),
+        )
+        session_state["conversation_summary"] = summary
+        session_state["assistant_chat_messages"] = window
+        _refresh_agent_memory_context(session_state)
         save_app_state(session_state)
         return reply, _state_snapshot(session_state)
 
@@ -160,6 +173,7 @@ def make_tomorrow_plan(request: DailyFeedbackRequest) -> dict[str, Any]:
 
         session_state["agent_result"] = updated_result
         session_state["daily_history"] = updated_result.get("daily_history", [])
+        _refresh_agent_memory_context(session_state)
         session_state["last_feedback_summary"] = daily_feedback_summary(
             workout_feeling=request.workout_feeling,
             feeling_emoji=request.feeling_emoji,
@@ -178,6 +192,7 @@ def _prepare_session(session_state: dict[str, Any]) -> None:
     session_state["memory_store"] = normalize_memory_store(session_state.get("memory_store"))
     if session_state.get("agent_result"):
         session_state["agent_result"] = hydrate_agent_result_for_display(session_state["agent_result"])
+        _refresh_agent_memory_context(session_state)
 
 
 def _default_session_state() -> dict[str, Any]:
@@ -191,6 +206,7 @@ def _default_session_state() -> dict[str, Any]:
         "daily_history": [],
         "memory_store": default_memory_store(),
         "assistant_chat_messages": [],
+        "conversation_summary": "",
         "last_feedback_summary": "",
         "last_action_message": "",
     }
@@ -234,7 +250,22 @@ def _state_snapshot(session_state: dict[str, Any]) -> dict[str, Any]:
             "memory_store": session_state.get("memory_store", default_memory_store()),
             "daily_history": session_state.get("daily_history", []),
             "assistant_chat_messages": session_state.get("assistant_chat_messages", []),
+            "conversation_summary": session_state.get("conversation_summary", ""),
             "last_feedback_summary": session_state.get("last_feedback_summary", ""),
             "last_action_message": session_state.get("last_action_message", ""),
         }
+    )
+
+
+def _refresh_agent_memory_context(session_state: dict[str, Any]) -> None:
+    result = session_state.get("agent_result")
+    if not isinstance(result, dict) or not result:
+        return
+    target_date = session_state.get("active_date") or result.get("current_date", "")
+    result["memory_context"] = memory_context_for_planning(
+        session_state.get("memory_store", default_memory_store()),
+        target_date,
+        profile_inputs=session_state.get("profile_inputs") or {},
+        result=result,
+        session_state=session_state,
     )
