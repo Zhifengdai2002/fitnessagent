@@ -7,7 +7,7 @@ from typing import Any
 from uuid import uuid4
 
 from agent.graph import run_agent
-from agent.services.coach_chat_service import call_chat_assistant
+from agent.nodes.coach import coach_react_node
 from agent.services.feedback_service import (
     daily_feedback_summary,
     generate_next_cycle_after_feedback,
@@ -35,6 +35,7 @@ from agent.services.planning_helpers import (
     sort_days,
     target_starts_new_cycle,
 )
+from agent.services.safety_rules import cancel_today_session_in_plan, check_hard_rules
 from agent.services.state_builders import build_initial_state
 from agent.state import FitnessAgentState
 from api.schemas import DailyFeedbackRequest, GeneratePlanRequest
@@ -94,7 +95,7 @@ def chat(message: str) -> tuple[str, dict[str, Any]]:
             raise ValueError("Create a plan before using AI Coach chat.")
 
         user_message = message.strip()
-        reply = call_chat_assistant(user_message, session_state)
+        reply = coach_react_node(user_message, session_state)
         messages = session_state.setdefault("assistant_chat_messages", [])
         messages.append({"role": "user", "content": user_message})
         messages.append({"role": "assistant", "content": reply})
@@ -123,6 +124,22 @@ def make_tomorrow_plan(request: DailyFeedbackRequest) -> dict[str, Any]:
             result=result,
         )
         current_session = session_for_history_date(result, current_reference_date, {})
+
+        # Hard safety check — runs before any LLM call and cannot be overridden.
+        sleep_hours = float((result.get("current_state") or {}).get("sleep_hours") or 7.0)
+        hard_stop = check_hard_rules(
+            sleep_hours=sleep_hours,
+            feedback_text=request.workout_feeling or "",
+        )
+        if hard_stop and not current_session.get("is_cancelled"):
+            cancel_today_session_in_plan(
+                result.get("current_plan", {}),
+                current_reference_date,
+                hard_stop["reasons"],
+            )
+            session_state["agent_result"] = result
+            session_state["last_action_message"] = "; ".join(hard_stop["reasons"])
+
         completed_training_days = set(session_state.get("completed_training_days", []) or [])
         if current_session.get("scheduled_date") and not current_session.get("is_cancelled"):
             completed_training_days.add(current_session["scheduled_date"])

@@ -9,7 +9,12 @@ from difflib import SequenceMatcher
 from functools import lru_cache
 from typing import Any, Iterable
 
-from agent.rag.documents import build_exercise_documents, build_food_documents
+from agent.rag.documents import (
+    build_exercise_documents,
+    build_food_documents,
+    build_primary_exercise_documents,
+    build_primary_food_documents,
+)
 from agent.rag.milvus_store import (
     build_milvus_collection,
     ensure_milvus_collection,
@@ -24,7 +29,7 @@ from agent.services.redis_store import load_cache_item, redis_cache_ttl_seconds,
 
 LOCAL_FALLBACK_SOURCES = {"local", "local_fallback"}
 RAG_SEARCH_CACHE_NAMESPACE = "rag_search"
-RAG_SEARCH_CACHE_VERSION = 1
+RAG_SEARCH_CACHE_VERSION = 2
 
 
 def _normalize(value: str) -> str:
@@ -65,7 +70,8 @@ def rebuild_exercise_index() -> dict[str, Any]:
     load_local_exercise_fallback_source.cache_clear()
     exercise_index.cache_clear()
     documents = build_exercise_documents()
-    build_milvus_collection(documents, collection_name=exercise_collection_name())
+    primary_documents = build_primary_exercise_documents()
+    build_milvus_collection(primary_documents, collection_name=exercise_collection_name())
     return build_index(documents, EXERCISE_INDEX_PATH)
 
 
@@ -81,7 +87,8 @@ def rebuild_food_index() -> dict[str, Any]:
     load_local_food_fallback_source.cache_clear()
     food_index.cache_clear()
     documents = build_food_documents()
-    build_milvus_collection(documents, collection_name=food_collection_name())
+    primary_documents = build_primary_food_documents()
+    build_milvus_collection(primary_documents, collection_name=food_collection_name())
     return build_index(documents, FOOD_INDEX_PATH)
 
 
@@ -237,7 +244,7 @@ def _search_exercise_documents(query: str, *, limit: int) -> list[dict[str, Any]
         if cached_results is not None:
             return cached_results
 
-        documents = build_exercise_documents()
+        documents = build_primary_exercise_documents()
         ensure_milvus_collection(documents, collection_name=exercise_collection_name())
         milvus_results = search_milvus_collection(
             query,
@@ -269,7 +276,7 @@ def _search_food_documents(query: str, *, limit: int) -> list[dict[str, Any]]:
         if cached_results is not None:
             return cached_results
 
-        documents = build_food_documents()
+        documents = build_primary_food_documents()
         ensure_milvus_collection(documents, collection_name=food_collection_name())
         milvus_results = search_milvus_collection(
             query,

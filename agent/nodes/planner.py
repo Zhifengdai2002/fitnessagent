@@ -4,11 +4,38 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+import re
 from datetime import date, datetime, timedelta
 from uuid import uuid4
 
 from agent.llm import call_model_json, load_prompt
-from agent.rag.retriever import retrieve_exercises
+from agent.services.exercise_selector import (
+    filter_candidates as _filter_plan_exercise_candidates,
+    focus_key_from_value as _focus_key_from_value,
+    focus_label as _focus_label,
+    focus_to_targets as _focus_to_targets,
+    merge_candidates as _merge_plan_exercise_candidates,
+    normalize_exercise_key as _normalize_exercise_key,
+    recommended_program_tags as _recommended_program_tags,
+    retrieve_plan_exercise_candidates as _retrieve_plan_exercise_candidates,
+)
+from agent.services.nutrition_service import (
+    build_food_candidates as _build_food_candidates,
+    build_meal_suggestions as _build_meal_suggestions,
+    build_nutrition_targets as _build_nutrition_targets,
+    extract_grams as _extract_grams,
+)
+from agent.services.planner_constants import (
+    DEFAULT_DAYS,
+    FOCUS_ALIASES,
+    FOCUS_LIBRARY,
+    GOAL_FOCUS_TEMPLATES,
+    GOAL_LABELS,
+    WEEKDAY_INDEX,
+    WEEKDAY_ORDER,
+    map_goal_tag,
+)
+from agent.services.safety_rules import contains_injury_language
 from agent.services.preference_scoring import learned_preferences_from_context
 from agent.state import FitnessAgentState, FitnessPlan, MealSuggestion, WorkoutSession
 from agent.tools import (
@@ -22,97 +49,6 @@ from agent.tools import (
 )
 
 
-DEFAULT_DAYS = ["Monday", "Tuesday", "Thursday", "Saturday"]
-WEEKDAY_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-WEEKDAY_INDEX = {day: index for index, day in enumerate(WEEKDAY_ORDER)}
-GOAL_LABELS = {
-    "weight_loss": "减重",
-    "strength": "力量",
-    "sculpting": "塑形",
-}
-FOCUS_LIBRARY = {
-    "upper_chest_arms": {
-        "label": "Upper Body (Chest + Arms)",
-        "target_muscles": ["chest", "triceps", "biceps"],
-        "movement_type": None,
-    },
-    "upper_shoulders": {
-        "label": "Upper Body (Shoulders)",
-        "target_muscles": ["shoulders", "side delts", "rear delts"],
-        "movement_type": None,
-    },
-    "back_training": {
-        "label": "Back Training",
-        "target_muscles": ["lats", "upper back", "mid back"],
-        "movement_type": "pull",
-    },
-    "lower_legs_glutes": {
-        "label": "Lower Body (Legs + Glutes)",
-        "target_muscles": ["quads", "glutes", "hamstrings"],
-        "movement_type": None,
-    },
-    "functional_core": {
-        "label": "Functional (Core + Abs)",
-        "target_muscles": ["core", "abs", "obliques"],
-        "movement_type": "core",
-    },
-    "functional_power": {
-        "label": "Functional (Power)",
-        "target_muscles": ["glutes", "quads", "core", "shoulders"],
-        "movement_type": "power",
-    },
-    "functional_conditioning": {
-        "label": "Functional (Conditioning)",
-        "target_muscles": ["core", "glutes", "shoulders"],
-        "movement_type": "conditioning",
-    },
-}
-GOAL_FOCUS_TEMPLATES = {
-    "weight_loss": [
-        "upper_chest_arms",
-        "lower_legs_glutes",
-        "functional_conditioning",
-        "back_training",
-        "functional_core",
-    ],
-    "strength": [
-        "upper_chest_arms",
-        "back_training",
-        "lower_legs_glutes",
-        "upper_shoulders",
-        "functional_power",
-    ],
-    "sculpting": [
-        "upper_chest_arms",
-        "upper_shoulders",
-        "back_training",
-        "lower_legs_glutes",
-        "functional_core",
-    ],
-}
-FOCUS_ALIASES = {
-    "legs": "lower_legs_glutes",
-    "practice legs": "lower_legs_glutes",
-    "train legs": "lower_legs_glutes",
-    "leg training": "lower_legs_glutes",
-    "leg day": "lower_legs_glutes",
-    "leg focus": "lower_legs_glutes",
-    "lower body": "lower_legs_glutes",
-    "lower body (legs + glutes)": "lower_legs_glutes",
-    "upper body": "upper_chest_arms",
-    "upper body (chest + arms)": "upper_chest_arms",
-    "shoulders": "upper_shoulders",
-    "upper body (shoulders)": "upper_shoulders",
-    "back": "back_training",
-    "back training": "back_training",
-    "core": "functional_core",
-    "functional (core + abs)": "functional_core",
-    "power": "functional_power",
-    "functional (power)": "functional_power",
-    "conditioning": "functional_conditioning",
-    "conditioning strength": "functional_conditioning",
-    "functional (conditioning)": "functional_conditioning",
-}
 
 
 def plan_generation_node(state: FitnessAgentState) -> FitnessAgentState:
@@ -596,43 +532,7 @@ def _build_hard_stop_context(state: FitnessAgentState) -> dict:
 
 
 def _contains_injury_language(text: str) -> bool:
-    negated_terms = [
-        "no injury",
-        "not injured",
-        "no pain",
-        "pain free",
-        "pain-free",
-        "doesn't hurt",
-        "does not hurt",
-        "feels fine",
-        "recovered",
-        "恢复了",
-        "不疼",
-        "没有受伤",
-    ]
-    if any(term in text for term in negated_terms):
-        return False
-
-    injury_terms = [
-        "injured",
-        "injury",
-        "hurt",
-        "hurts",
-        "pain",
-        "painful",
-        "ache",
-        "strain",
-        "strained",
-        "sprain",
-        "sprained",
-        "pulled",
-        "受伤",
-        "疼",
-        "痛",
-        "拉伤",
-        "扭伤",
-    ]
-    return any(term in text for term in injury_terms)
+    return contains_injury_language(text)
 
 
 def _safe_float(value: object, fallback: float) -> float:
@@ -1040,18 +940,7 @@ def _requested_focus_from_change_request(plan_change_request: str) -> str | None
 
 
 def _map_goal_tag(primary_goal: str) -> str:
-    normalized = primary_goal.strip().lower().replace("-", "_").replace(" ", "_")
-    mapping = {
-        "减重": "weight_loss",
-        "fat_loss": "weight_loss",
-        "weight_loss": "weight_loss",
-        "力量": "strength",
-        "strength": "strength",
-        "塑形": "sculpting",
-        "sculpting": "sculpting",
-        "body_recomposition": "sculpting",
-    }
-    return mapping.get(normalized, "weight_loss")
+    return map_goal_tag(primary_goal)
 
 
 def _collect_excluded_conditions(constraints: dict, latest_feedback: dict) -> list[str]:
@@ -1261,142 +1150,6 @@ def _build_session_blueprint(
     }
 
 
-def _build_food_candidates(constraints: dict, *, learned_preferences: dict | None = None) -> list[dict]:
-    dietary_preferences = constraints.get("dietary_preferences", [])
-    food_allergies = constraints.get("food_allergies", [])
-    categories = ["protein", "carb", "fruit", "vegetable", "fat"]
-    candidates: list[dict] = []
-    for category in categories:
-        foods = find_foods(
-            category=category,
-            diet_tags=dietary_preferences or None,
-            excluded_allergens=food_allergies,
-            learned_preferences=learned_preferences,
-            limit=4,
-        )
-        for food in foods:
-            candidates.append(
-                {
-                    "name": food["name"],
-                    "category": food["category"],
-                    "protein_g": food["protein_g"],
-                    "carbs_g": food["carbs_g"],
-                    "fat_g": food["fat_g"],
-                    "calories_per_100g": food["calories_per_100g"],
-                }
-            )
-    return candidates
-
-
-def _retrieve_plan_exercise_candidates(
-    *,
-    focus_key: str,
-    target_muscles: list[str],
-    movement_type: str | None,
-    fitness_level: str,
-    training_goal: str,
-    equipment_access: list[str],
-    excluded_conditions: list[str],
-    excluded_exercises: list[str],
-    limit: int,
-    learned_preferences: dict | None = None,
-) -> list[dict]:
-    """Return exercise candidates for planning, preferring the local RAG index."""
-
-    query = _build_plan_exercise_query(
-        focus_key=focus_key,
-        target_muscles=target_muscles,
-        movement_type=movement_type,
-        fitness_level=fitness_level,
-        training_goal=training_goal,
-    )
-    candidates = retrieve_exercises(
-        query=query,
-        focus=focus_key,
-        level=fitness_level,
-        exclude=excluded_exercises,
-        excluded_conditions=excluded_conditions,
-        learned_preferences=learned_preferences,
-        limit=limit,
-    )
-    candidates = _filter_plan_exercise_candidates(candidates, excluded_exercises)
-    if len(candidates) >= limit:
-        return candidates[:limit]
-
-    fallback_candidates = find_exercises(
-        target_muscles=target_muscles,
-        movement_type=movement_type,
-        difficulty=fitness_level,
-        available_equipment=equipment_access,
-        training_goal=training_goal,
-        excluded_conditions=excluded_conditions,
-        recommended_for=_recommended_program_tags(equipment_access, excluded_conditions),
-        focus_tags=[focus_key],
-        limit=max(limit * 2, limit),
-    )
-    return _merge_plan_exercise_candidates(candidates, fallback_candidates, excluded_exercises, limit)
-
-
-def _build_plan_exercise_query(
-    *,
-    focus_key: str,
-    target_muscles: list[str],
-    movement_type: str | None,
-    fitness_level: str,
-    training_goal: str,
-) -> str:
-    pieces = [
-        f"Find exercises for a {_focus_label(focus_key)} workout.",
-        f"Focus tag: {focus_key}.",
-        f"Fitness level: {fitness_level}.",
-        f"Training goal: {training_goal}.",
-        f"Target muscles: {', '.join(target_muscles)}.",
-    ]
-    if movement_type:
-        pieces.append(f"Movement type: {movement_type}.")
-    pieces.append("Prefer appropriate alternatives with matching muscles, movement pattern, and difficulty.")
-    return "\n".join(pieces)
-
-
-def _filter_plan_exercise_candidates(candidates: list[dict], excluded_exercises: list[str]) -> list[dict]:
-    excluded = {_normalize_exercise_key(value) for value in excluded_exercises}
-    filtered: list[dict] = []
-    seen: set[str] = set()
-    for exercise in candidates:
-        name_key = _normalize_exercise_key(str(exercise.get("name", "")))
-        id_key = _normalize_exercise_key(str(exercise.get("id", "")))
-        if not name_key or name_key in seen:
-            continue
-        if name_key in excluded or id_key in excluded:
-            continue
-        seen.add(name_key)
-        filtered.append(exercise)
-    return filtered
-
-
-def _merge_plan_exercise_candidates(
-    primary: list[dict],
-    fallback: list[dict],
-    excluded_exercises: list[str],
-    limit: int,
-) -> list[dict]:
-    merged = _filter_plan_exercise_candidates(primary, excluded_exercises)
-    seen = {_normalize_exercise_key(str(exercise.get("name", ""))) for exercise in merged}
-    excluded = {_normalize_exercise_key(value) for value in excluded_exercises}
-    for exercise in fallback:
-        if len(merged) >= limit:
-            break
-        name_key = _normalize_exercise_key(str(exercise.get("name", "")))
-        id_key = _normalize_exercise_key(str(exercise.get("id", "")))
-        if not name_key or name_key in seen or name_key in excluded or id_key in excluded:
-            continue
-        seen.add(name_key)
-        merged.append(exercise)
-    return merged[:limit]
-
-
-def _normalize_exercise_key(value: str) -> str:
-    return value.strip().lower().replace("-", "_").replace(" ", "_")
 
 
 def _finalize_workout_session(
@@ -1543,11 +1296,6 @@ def _finalize_meal_suggestions(
     return finalized or fallback_meals
 
 
-def _extract_grams(serving_size: str, default: float) -> float:
-    digits = "".join(char for char in serving_size if char.isdigit() or char == ".")
-    return float(digits) if digits else default
-
-
 def _coerce_string_list(value: list | None, fallback: list[str]) -> list[str]:
     if not value:
         return fallback
@@ -1593,35 +1341,6 @@ def _sort_workout_sessions(workout_sessions: list[WorkoutSession]) -> list[Worko
             WEEKDAY_INDEX.get(str(session.get("day", "")), 99),
         ),
     )
-
-
-def _focus_key_from_value(value: str) -> str:
-    normalized = value.strip().lower().replace("_", " ")
-    if normalized in FOCUS_ALIASES:
-        return FOCUS_ALIASES[normalized]
-    for focus_key, config in FOCUS_LIBRARY.items():
-        if normalized == focus_key.replace("_", " "):
-            return focus_key
-        if normalized == config["label"].lower():
-            return focus_key
-    return "functional_conditioning"
-
-
-def _focus_label(focus_key: str) -> str:
-    return FOCUS_LIBRARY.get(focus_key, FOCUS_LIBRARY["functional_conditioning"])["label"]
-
-
-def _focus_to_targets(focus: str) -> tuple[list[str], str | None]:
-    focus_key = _focus_key_from_value(focus)
-    config = FOCUS_LIBRARY.get(focus_key, FOCUS_LIBRARY["functional_conditioning"])
-    return list(config["target_muscles"]), config["movement_type"]
-
-
-def _recommended_program_tags(equipment_access: list[str], excluded_conditions: list[str]) -> list[str]:
-    tags = []
-    if excluded_conditions:
-        tags.append("low_impact_program")
-    return tags
 
 
 def _build_warmup(focus: str) -> list[str]:
@@ -1691,101 +1410,6 @@ def _apply_intensity_note(base_note: str, intensity_adjustment: str) -> str:
     return f"{note} {cue}".strip()
 
 
-def _build_nutrition_targets(user_profile: dict, goals: dict, current_state: dict) -> dict[str, int | float]:
-    # Daily weight/body-fat check-ins are records, not same-day planning controls.
-    current_weight = float(user_profile.get("weight_kg") or 70.0)
-    primary_goal = _map_goal_tag(str(goals.get("primary_goal", "weight_loss")))
-
-    if primary_goal == "weight_loss":
-        calories = int(current_weight * 28)
-    elif primary_goal == "strength":
-        calories = int(current_weight * 33)
-    else:
-        calories = int(current_weight * 29)
-
-    protein_g = int(round(current_weight * 1.8))
-    fat_g = int(round(current_weight * 0.8))
-    carbs_g = max(100, int(round((calories - protein_g * 4 - fat_g * 9) / 4)))
-
-    return {
-        "daily_calories": calories,
-        "protein_g": protein_g,
-        "carbs_g": carbs_g,
-        "fat_g": fat_g,
-        "hydration_liters": round(max(2.0, current_weight * 0.035), 1),
-    }
-
-
-def _build_meal_suggestions(
-    *,
-    goals: dict,
-    constraints: dict,
-    nutrition_targets: dict,
-    learned_preferences: dict | None = None,
-) -> list[MealSuggestion]:
-    primary_goal = _map_goal_tag(str(goals.get("primary_goal", "weight_loss")))
-    dietary_preferences = constraints.get("dietary_preferences", [])
-    food_allergies = constraints.get("food_allergies", [])
-
-    protein_pool = find_foods(
-        category="protein",
-        diet_tags=dietary_preferences or None,
-        excluded_allergens=food_allergies,
-        min_protein_g=10,
-        learned_preferences=learned_preferences,
-        limit=3,
-    )
-    carb_pool = find_foods(
-        category="carb",
-        diet_tags=[tag for tag in dietary_preferences if tag in {"vegan", "gluten_free"}] or None,
-        excluded_allergens=food_allergies,
-        learned_preferences=learned_preferences,
-        limit=3,
-    )
-    fruit_pool = find_foods(
-        category="fruit",
-        excluded_allergens=food_allergies,
-        learned_preferences=learned_preferences,
-        limit=2,
-    )
-
-    serving_plan = [
-        ("breakfast", protein_pool[:1] + carb_pool[:1] + fruit_pool[:1], 100),
-        ("lunch", protein_pool[1:2] + carb_pool[1:2], 150),
-        ("dinner", protein_pool[2:3] + carb_pool[2:3], 180),
-    ]
-    if primary_goal != "weight_loss":
-        serving_plan.append(("snack", protein_pool[:1] + fruit_pool[1:2], 80))
-
-    suggestions: list[MealSuggestion] = []
-    for meal_slot, foods, grams in serving_plan:
-        for food in foods:
-            macro = calculate_food_macros(food["id"], grams)
-            suggestions.append(
-                {
-                    "food_name": food["name"],
-                    "serving_size": f"{grams}g",
-                    "calories": int(round(macro["calories"])),
-                    "protein_g": macro["protein_g"],
-                    "carbs_g": macro["carbs_g"],
-                    "fat_g": macro["fat_g"],
-                    "meal_slot": meal_slot,
-                }
-            )
-
-    if not suggestions:
-        suggestions.append(
-            {
-                "food_name": "Balanced whole-food meal",
-                "serving_size": "1 plate",
-                "calories": int(nutrition_targets["daily_calories"] // 3),
-                "protein_g": round(float(nutrition_targets["protein_g"]) / 3, 1),
-                "carbs_g": round(float(nutrition_targets["carbs_g"]) / 3, 1),
-                "fat_g": round(float(nutrition_targets["fat_g"]) / 3, 1),
-                "meal_slot": "lunch",
-            }
-        )
-    return suggestions
 
 
 def _build_coaching_focus(latest_feedback: dict, training_goal: str) -> list[str]:

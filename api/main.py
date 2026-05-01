@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from api.diagnostics import dependency_health
 from api import services
 from api.schemas import ApiResponse, ChatRequest, ChatResponse, DailyFeedbackRequest, GeneratePlanRequest
 
@@ -25,8 +26,8 @@ app.add_middleware(
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health() -> dict:
+    return dependency_health()
 
 
 @app.get("/state", response_model=ApiResponse)

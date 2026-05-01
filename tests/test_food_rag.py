@@ -263,14 +263,12 @@ def test_food_documents_keep_local_json_as_small_fallback_only() -> None:
     assert len(fallback) == LOCAL_FOOD_FALLBACK_LIMIT
     assert len(local_documents) <= LOCAL_FOOD_FALLBACK_LIMIT
     assert primary_sources == {"curated_rag"}
-    assert fallback_names[:7] == [
+    assert fallback_names[:5] == [
         "Chicken Breast",
         "Egg",
         "Firm Tofu",
         "Brown Rice, Cooked",
         "Sweet Potato",
-        "Broccoli",
-        "Apple",
     ]
 
 

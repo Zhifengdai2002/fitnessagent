@@ -130,3 +130,52 @@ def test_retriever_prefers_milvus_results_when_available(monkeypatch) -> None:
     )
 
     assert results[0]["name"] == "Milvus Shoulder Press"
+
+
+def test_retriever_indexes_only_primary_documents_in_milvus(monkeypatch) -> None:
+    captured_sources: set[str] = set()
+
+    monkeypatch.setattr("agent.rag.retriever.milvus_enabled", lambda: True)
+    monkeypatch.setattr("agent.rag.retriever.exercise_collection_name", lambda: "fitness_exercises_test")
+
+    def capture_documents(documents, collection_name):
+        captured_sources.update(
+            str(document.get("metadata", {}).get("source") or "")
+            for document in documents
+        )
+        return True
+
+    monkeypatch.setattr("agent.rag.retriever.ensure_milvus_collection", capture_documents)
+    monkeypatch.setattr(
+        "agent.rag.retriever.search_milvus_collection",
+        lambda query, collection_name, limit: [
+            {
+                "score": 0.8,
+                "document": {
+                    "metadata": {
+                        "name": "Milvus Row",
+                        "source": "wger",
+                        "focus_tags": ["back_training"],
+                        "difficulty": "beginner",
+                    },
+                    "raw": {
+                        "name": "Milvus Row",
+                        "source": "wger",
+                        "focus_tags": ["back_training"],
+                        "difficulty": "beginner",
+                    },
+                },
+            }
+        ],
+    )
+
+    results = retrieve_exercises(
+        query="beginner back row",
+        focus="back_training",
+        level="beginner",
+        limit=1,
+    )
+
+    assert results[0]["name"] == "Milvus Row"
+    assert "local_fallback" not in captured_sources
+    assert {"curated_rag", "wger"}.intersection(captured_sources)

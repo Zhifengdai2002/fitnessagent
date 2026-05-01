@@ -7,8 +7,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 
-from agent.rag.documents import build_exercise_documents, build_food_documents
+from agent.rag.documents import build_primary_exercise_documents, build_primary_food_documents
 from agent.rag.milvus_store import (
     build_milvus_collection,
     exercise_collection_name,
@@ -25,8 +26,8 @@ def main() -> None:
     if not milvus_enabled():
         raise SystemExit("Milvus is not configured. Set RAG_BACKEND=milvus and MILVUS_URI first.")
 
-    exercise_documents = build_exercise_documents()
-    food_documents = build_food_documents()
+    exercise_documents = build_primary_exercise_documents()
+    food_documents = build_primary_food_documents()
     exercise_ok = build_milvus_collection(
         exercise_documents,
         collection_name=exercise_collection_name(),
@@ -42,9 +43,13 @@ def main() -> None:
 
     print(
         "Built Milvus collections: "
-        f"{exercise_collection_name()}={len(exercise_documents)} docs, "
-        f"{food_collection_name()}={len(food_documents)} docs"
+        f"{exercise_collection_name()}={len(exercise_documents)} docs {_source_counts(exercise_documents)}, "
+        f"{food_collection_name()}={len(food_documents)} docs {_source_counts(food_documents)}"
     )
+
+
+def _source_counts(documents: list[dict]) -> dict[str, int]:
+    return dict(Counter(str(document.get("metadata", {}).get("source") or "unknown") for document in documents))
 
 
 if __name__ == "__main__":

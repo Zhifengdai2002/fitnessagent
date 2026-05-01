@@ -5,7 +5,7 @@ from agent.rag.documents import (
     build_exercise_documents,
     load_local_exercise_fallback_source,
 )
-from agent.nodes.planner import _build_session_blueprint, _retrieve_plan_exercise_candidates
+from agent.nodes.planner import _build_session_blueprint, _merge_plan_exercise_candidates, _retrieve_plan_exercise_candidates
 from agent.rag.retriever import retrieve_exercises
 from agent.tools import exercise_tool
 
@@ -219,3 +219,31 @@ def test_legacy_local_exercises_are_exact_lookup_only() -> None:
     legacy = exercise_tool.get_exercise_by_name("Barbell Bench Press")
     assert legacy
     assert legacy["source"] == "local_fallback"
+
+
+def test_planner_merge_dedupes_generic_exercise_suffix() -> None:
+    merged = _merge_plan_exercise_candidates(
+        primary=[
+            {
+                "id": "wger_machine_chest_press_exercise",
+                "name": "Machine Chest Press Exercise",
+                "source": "wger",
+            }
+        ],
+        fallback=[
+            {
+                "id": "rag_machine_chest_press",
+                "name": "Machine Chest Press",
+                "source": "curated_rag",
+            },
+            {
+                "id": "rag_incline_push_up",
+                "name": "Incline Push-Up",
+                "source": "curated_rag",
+            },
+        ],
+        excluded_exercises=[],
+        limit=2,
+    )
+
+    assert [item["name"] for item in merged] == ["Machine Chest Press Exercise", "Incline Push-Up"]

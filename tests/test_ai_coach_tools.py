@@ -6,7 +6,8 @@ from datetime import datetime
 import pytest
 
 import agent.tools.exercise_tool as exercise_tool
-from agent.services import coach_chat_service as coach
+import agent.nodes.coach as coach_node
+from agent.services import coach_tools as coach
 from agent.services.feedback_service import record_memory_daily_feedback
 from agent.services.mysql_store import _structured_rows_from_payload
 from agent.services.memory import compact_conversation_memory, default_memory_store, memory_context_for_planning
@@ -229,6 +230,62 @@ def _tool_context(result: dict, session_state: dict, user_message: str = "") -> 
     }
 
 
+class _FakeSettings:
+    model_name = "test-model"
+
+
+class _FakeFunction:
+    def __init__(self, name: str, arguments: dict) -> None:
+        import json
+
+        self.name = name
+        self.arguments = json.dumps(arguments)
+
+
+class _FakeToolCall:
+    def __init__(self, call_id: str, name: str, arguments: dict) -> None:
+        self.id = call_id
+        self.function = _FakeFunction(name, arguments)
+
+
+class _FakeMessage:
+    def __init__(self, content: str | None = None, tool_calls: list[_FakeToolCall] | None = None) -> None:
+        self.content = content
+        self.tool_calls = tool_calls or []
+
+
+class _FakeChoice:
+    def __init__(self, message: _FakeMessage) -> None:
+        self.message = message
+
+
+class _FakeResponse:
+    def __init__(self, message: _FakeMessage) -> None:
+        self.choices = [_FakeChoice(message)]
+
+
+class _FakeCompletions:
+    def __init__(self, responses: list[_FakeResponse]) -> None:
+        self._responses = responses
+        self.calls: list[dict] = []
+
+    def create(self, **kwargs) -> _FakeResponse:
+        self.calls.append(kwargs)
+        if not self._responses:
+            raise AssertionError("Unexpected model call")
+        return self._responses.pop(0)
+
+
+class _FakeChat:
+    def __init__(self, responses: list[_FakeResponse]) -> None:
+        self.completions = _FakeCompletions(responses)
+
+
+class _FakeClient:
+    def __init__(self, responses: list[_FakeResponse]) -> None:
+        self.chat = _FakeChat(responses)
+
+
 def _today(result: dict) -> dict:
     return result["current_plan"]["workout_sessions"][0]
 
@@ -279,6 +336,7 @@ def test_advice_question_does_not_update_today_when_it_only_asks_recommendation(
     assert tool_call["tool_name"] == "no_action"
 
 
+@pytest.mark.skip(reason="route_coach_message is replaced by coach_react_node; LLM-based routing no longer used")
 def test_strong_replacement_intent_overrides_coordinator_drift(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         coach,
@@ -336,6 +394,7 @@ def test_typo_exericises_is_treated_as_general_exercise_replacement() -> None:
     assert coach.chat_requests_general_exercise_replacement("change some exericises")
 
 
+@pytest.mark.skip(reason="route_coach_message is replaced by coach_react_node; LLM-based routing no longer used")
 def test_normalized_replace_exercise_intent_routes_without_keyword(monkeypatch: pytest.MonkeyPatch) -> None:
     responses = iter(
         [
@@ -849,6 +908,25 @@ def test_add_one_more_exercise_updates_today_plan_and_keeps_focus_policy() -> No
     assert any(today["exercises"][2]["name"] in title for title in video_titles)
 
 
+def test_exercise_count_delta_adds_multiple_same_focus_exercises() -> None:
+    result = _sample_result()
+    session_state = _session_state()
+
+    summary = coach.execute_coach_tool_call(
+        {
+            "tool_name": "adjust_workout_volume",
+            "arguments": {"exercise_count_delta": 2},
+        },
+        _tool_context(result, session_state, "add 2 more exercises"),
+    )
+
+    today = _today(session_state["agent_result"])
+    assert "adding 2 same-focus exercises" in summary
+    assert len(today["exercises"]) == 4
+    assert {exercise["sets"] for exercise in today["exercises"]} == {4}
+    assert today["focus"] == "Lower Body (Legs + Glutes)"
+
+
 def test_reduce_one_exercise_uses_volume_tool_and_never_below_two() -> None:
     result = _sample_result()
     _today(result)["exercises"].append(
@@ -874,6 +952,29 @@ def test_reduce_one_exercise_uses_volume_tool_and_never_below_two() -> None:
     today = _today(session_state["agent_result"])
     assert "boundary" in summary
     assert len(today["exercises"]) == 2
+
+
+def test_exercise_count_delta_removes_multiple_without_going_below_two() -> None:
+    result = _sample_result()
+    _today(result)["exercises"].extend(
+        [
+            {"name": "Leg Press", "sets": 4, "reps": "6-10", "notes": ""},
+            {"name": "Step-Up", "sets": 4, "reps": "6-10", "notes": ""},
+        ]
+    )
+    session_state = _session_state()
+
+    coach.execute_coach_tool_call(
+        {
+            "tool_name": "adjust_workout_volume",
+            "arguments": {"exercise_count_delta": -2},
+        },
+        _tool_context(result, session_state, "remove 2 exercises"),
+    )
+
+    today = _today(session_state["agent_result"])
+    assert len(today["exercises"]) == 2
+    assert [exercise["name"] for exercise in today["exercises"]] == ["Goblet Squat", "Glute Bridge"]
 
 
 def test_set_policy_persists_after_later_workout_patch() -> None:
@@ -1007,6 +1108,72 @@ def test_ai_coach_regression_sequence_preserves_state_boundaries(monkeypatch: py
 
     assert after_food["current_plan"]["workout_sessions"] == workout_before_food_change
     assert "Spinach" in [meal["food_name"] for meal in after_food["current_plan"]["meal_suggestions"]]
+
+
+def test_coach_react_node_executes_multiple_native_tool_calls_in_one_turn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = _sample_result()
+    session_state = _session_state()
+    session_state["agent_result"] = deepcopy(result)
+
+    def fake_replacement_food_for_meal(*, meal: dict, avoidances: list[str], used_foods: set[str]) -> dict:
+        return {
+            "meal_slot": meal["meal_slot"],
+            "food_name": "Spinach",
+            "serving_size": meal["serving_size"],
+            "calories": 30,
+            "protein_g": 3,
+            "carbs_g": 5,
+            "fat_g": 0,
+        }
+
+    fake_client = _FakeClient(
+        [
+            _FakeResponse(
+                _FakeMessage(
+                    tool_calls=[
+                        _FakeToolCall("call_1", "adjust_workout_volume", {"set_adjustment": "increase"}),
+                        _FakeToolCall("call_2", "replace_food", {"temporary_food_avoidances": ["broccoli"]}),
+                        _FakeToolCall(
+                            "call_3",
+                            "write_memory",
+                            {
+                                "collection": "food_preferences",
+                                "data": {"food": "salmon", "preference": "avoid"},
+                                "note": "User dislikes salmon.",
+                            },
+                        ),
+                    ]
+                )
+            ),
+            _FakeResponse(_FakeMessage(content="Updated today's sets, food, and memory.")),
+        ]
+    )
+
+    monkeypatch.setattr(coach, "replacement_food_for_meal", fake_replacement_food_for_meal)
+    monkeypatch.setattr(coach_node, "get_model_client", lambda: fake_client)
+    monkeypatch.setattr(coach_node, "load_settings", lambda: _FakeSettings())
+
+    reply = coach_node.coach_react_node(
+        "Add sets today, remove broccoli, and remember I don't like salmon.",
+        session_state,
+    )
+
+    assert reply == "Updated today's sets, food, and memory."
+    assert len(fake_client.chat.completions.calls) == 2
+    second_call_messages = fake_client.chat.completions.calls[1]["messages"]
+    tool_messages = [message for message in second_call_messages if message["role"] == "tool"]
+    assert [message["tool_call_id"] for message in tool_messages] == ["call_1", "call_2", "call_3"]
+
+    updated = session_state["agent_result"]
+    today = _today(updated)
+    assert [exercise["sets"] for exercise in today["exercises"]] == [5, 5]
+    assert "Spinach" in [meal["food_name"] for meal in updated["current_plan"]["meal_suggestions"]]
+    assert any(
+        item.get("food") == "salmon"
+        for item in session_state["memory_store"]["food_preferences"]
+    )
 
 
 def test_cancel_today_without_injury_only_changes_today() -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -12,15 +13,25 @@ FOOD_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "food_db.json"
 EXERCISE_RAG_SEED_PATH = Path(__file__).resolve().parents[2] / "data" / "knowledge" / "exercise_rag_seed.json"
 FOOD_RAG_SEED_PATH = Path(__file__).resolve().parents[2] / "data" / "knowledge" / "food_rag_seed.json"
 WGER_CACHE_PATH = Path(__file__).resolve().parents[2] / "data" / "external" / "wger_exercises.json"
-LOCAL_EXERCISE_FALLBACK_LIMIT = 24
-LOCAL_FOOD_FALLBACK_LIMIT = 8
+LOCAL_EXERCISE_FALLBACK_LIMIT = 10
+LOCAL_FOOD_FALLBACK_LIMIT = 5
 
 
 def build_exercise_documents() -> list[dict[str, Any]]:
     """Return normalized exercise documents for local retrieval."""
 
+    return _build_exercise_documents(load_exercise_documents_source())
+
+
+def build_primary_exercise_documents() -> list[dict[str, Any]]:
+    """Return normalized exercise documents for Milvus/main RAG retrieval."""
+
+    return _build_exercise_documents(load_primary_exercise_documents_source())
+
+
+def _build_exercise_documents(exercises: list[dict[str, Any]]) -> list[dict[str, Any]]:
     documents: list[dict[str, Any]] = []
-    for exercise in load_exercise_documents_source():
+    for exercise in exercises:
         name = str(exercise.get("name", "")).strip()
         if not name:
             continue
@@ -84,8 +95,18 @@ def build_exercise_documents() -> list[dict[str, Any]]:
 def build_food_documents() -> list[dict[str, Any]]:
     """Return normalized food documents for nutrition retrieval."""
 
+    return _build_food_documents(load_food_documents_source())
+
+
+def build_primary_food_documents() -> list[dict[str, Any]]:
+    """Return normalized food documents for Milvus/main RAG retrieval."""
+
+    return _build_food_documents(load_primary_food_documents_source())
+
+
+def _build_food_documents(foods: list[dict[str, Any]]) -> list[dict[str, Any]]:
     documents: list[dict[str, Any]] = []
-    for food in load_food_documents_source():
+    for food in foods:
         name = str(food.get("name", "")).strip()
         if not name:
             continue
@@ -139,7 +160,7 @@ def build_food_documents() -> list[dict[str, Any]]:
 
 @lru_cache(maxsize=1)
 def load_exercise_documents_source() -> list[dict[str, Any]]:
-    exercises = load_primary_exercise_documents_source()
+    exercises = list(load_primary_exercise_documents_source())
     fallback = load_local_exercise_fallback_source()
     exercises.extend(fallback)
     return _dedupe_exercises(exercises)
@@ -147,7 +168,7 @@ def load_exercise_documents_source() -> list[dict[str, Any]]:
 
 @lru_cache(maxsize=1)
 def load_food_documents_source() -> list[dict[str, Any]]:
-    foods = load_primary_food_documents_source()
+    foods = list(load_primary_food_documents_source())
     foods.extend(load_local_food_fallback_source())
     return _dedupe_by_name(foods)
 
@@ -160,7 +181,11 @@ def load_primary_exercise_documents_source() -> list[dict[str, Any]]:
     if EXERCISE_RAG_SEED_PATH.exists():
         exercises.extend(_load_json_list(EXERCISE_RAG_SEED_PATH))
     if WGER_CACHE_PATH.exists():
-        exercises.extend(_load_json_list(WGER_CACHE_PATH))
+        exercises.extend(
+            item
+            for item in (_clean_primary_exercise_source(item) for item in _load_json_list(WGER_CACHE_PATH))
+            if item and not _is_low_quality_wger_exercise(item)
+        )
     return _dedupe_exercises(exercises)
 
 
@@ -206,7 +231,18 @@ def load_full_legacy_food_source() -> list[dict[str, Any]]:
 
 
 def _dedupe_exercises(exercises: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return _dedupe_by_name(exercises)
+    deduped: list[dict[str, Any]] = []
+    seen_names: set[str] = set()
+    for item in exercises:
+        name = str(item.get("name", "")).strip()
+        if not name:
+            continue
+        name_key = _canonical_exercise_key(name)
+        if name_key in seen_names:
+            continue
+        seen_names.add(name_key)
+        deduped.append(item)
+    return deduped
 
 
 def _dedupe_by_name(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -232,6 +268,68 @@ def _load_json_list(path: Path) -> list[dict[str, Any]]:
     if not isinstance(payload, list):
         return []
     return [item for item in payload if isinstance(item, dict)]
+
+
+def _clean_primary_exercise_source(item: dict[str, Any]) -> dict[str, Any]:
+    source = str(item.get("source") or "").strip()
+    if source != "wger":
+        return item
+
+    cleaned = dict(item)
+    name = str(cleaned.get("name", "")).strip()
+    name = re.sub(r"\s+exercise$", "", name, flags=re.IGNORECASE).strip()
+    cleaned["name"] = name
+
+    notes = str(cleaned.get("notes", "")).strip()
+    notes = re.sub(r"^[\s.:-]+", "", notes).strip()
+    if not notes:
+        notes = "Use controlled form and stop if the movement causes pain."
+    cleaned["notes"] = notes
+
+    equipment = _listify(cleaned.get("equipment"))
+    if _is_generic_wger_equipment(equipment):
+        inferred = _infer_equipment_from_name(name)
+        if inferred:
+            cleaned["equipment"] = inferred
+    return cleaned
+
+
+def _is_low_quality_wger_exercise(item: dict[str, Any]) -> bool:
+    if str(item.get("source") or "") != "wger":
+        return False
+    name = str(item.get("name", "")).strip()
+    notes = str(item.get("notes", "")).strip()
+    if not name:
+        return True
+    if not name.isascii() or (notes and not notes.isascii()):
+        return True
+    if len(name.split()) > 7:
+        return True
+    if any(token in name.lower() for token in ["stretching", "rehab only"]):
+        return True
+    muscles = _listify(item.get("primary_muscles") or item.get("target_muscle"))
+    focus = _listify(item.get("focus_tags"))
+    return not muscles and not focus
+
+
+def _is_generic_wger_equipment(equipment: list[str]) -> bool:
+    normalized = {_slug(value) for value in equipment}
+    return not normalized or normalized in [{"gym_mat"}, {"mat"}]
+
+
+def _infer_equipment_from_name(name: str) -> list[str]:
+    normalized = name.lower()
+    if "cable" in normalized:
+        return ["cable_machine"]
+    if "machine" in normalized or "leg press" in normalized or "chest press" in normalized:
+        return ["machine"]
+    if "dumbbell" in normalized:
+        return ["dumbbell"]
+    if "barbell" in normalized:
+        return ["barbell"]
+    if "kettlebell" in normalized:
+        return ["kettlebell"]
+    return []
 
 
 def _mark_local_fallback(item: dict[str, Any]) -> dict[str, Any]:
@@ -286,5 +384,23 @@ def _list_text(value: Any) -> str:
     return ", ".join(str(item).strip() for item in value if str(item).strip())
 
 
+def _listify(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
+
+
 def _slug(value: str) -> str:
     return value.strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def _canonical_exercise_key(name: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", " ", name.lower()).strip()
+    tokens = [
+        token
+        for token in normalized.split()
+        if token not in {"exercise", "exercises", "workout", "movement", "demo", "tutorial"}
+    ]
+    return " ".join(tokens)
