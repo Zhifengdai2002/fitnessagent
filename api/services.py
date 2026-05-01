@@ -38,7 +38,7 @@ from agent.services.planning_helpers import (
 from agent.services.safety_rules import cancel_today_session_in_plan, check_hard_rules
 from agent.services.state_builders import build_initial_state
 from agent.state import FitnessAgentState
-from api.schemas import DailyFeedbackRequest, GeneratePlanRequest
+from api.schemas import COMPLETION_RATE_SCORES, DailyFeedbackRequest, GeneratePlanRequest
 
 _LOCK = RLock()
 
@@ -162,6 +162,7 @@ def make_tomorrow_plan(request: DailyFeedbackRequest) -> dict[str, Any]:
         session_state["pending_homepage_date_picker"] = target_date
         session_state["last_action_message"] = ""
 
+        adherence_score = COMPLETION_RATE_SCORES.get(request.completion_rate, 1.0)
         updated_result, memory_store = record_daily_feedback_and_advance(
             previous_result=result,
             current_session=current_session,
@@ -171,6 +172,7 @@ def make_tomorrow_plan(request: DailyFeedbackRequest) -> dict[str, Any]:
             current_body_fat_pct=float(request.current_body_fat_pct),
             workout_feeling=request.workout_feeling,
             feeling_emoji=request.feeling_emoji,
+            adherence_score=adherence_score,
             memory_store=session_state.get("memory_store", default_memory_store()),
         )
         session_state["memory_store"] = memory_store
@@ -184,8 +186,10 @@ def make_tomorrow_plan(request: DailyFeedbackRequest) -> dict[str, Any]:
                 current_body_fat_pct=float(request.current_body_fat_pct),
                 workout_feeling=request.workout_feeling,
                 feeling_emoji=request.feeling_emoji,
+                adherence_score=adherence_score,
                 thread_id=session_state["thread_id"],
                 memory_store=session_state.get("memory_store", default_memory_store()),
+                session_state=session_state,
             )
 
         session_state["agent_result"] = updated_result

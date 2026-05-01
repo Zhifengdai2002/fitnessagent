@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   AppState,
   DailyFeedbackPayload,
@@ -42,8 +42,8 @@ const defaultProfile: GeneratePlanPayload = {
 const defaultFeedback: DailyFeedbackPayload = {
   current_weight_kg: 78,
   current_body_fat_pct: 24,
-  workout_feeling: "",
-  feeling_emoji: "😊"
+  feeling_emoji: "😊",
+  completion_rate: "high"
 };
 
 export default function Home() {
@@ -54,14 +54,17 @@ export default function Home() {
   const [coachOpen, setCoachOpen] = useState(true);
   const [loading, setLoading] = useState("");
   const [error, setError] = useState("");
+  const feedbackInitialized = useRef(false);
 
   useEffect(() => {
     void refreshState();
   }, []);
 
+  // Sync weight/body fat from profile only on first load, not on every state refresh.
   useEffect(() => {
     const profileInputs = state.profile_inputs;
-    if (profileInputs) {
+    if (profileInputs && !feedbackInitialized.current) {
+      feedbackInitialized.current = true;
       setFeedback((current) => ({
         ...current,
         current_weight_kg: Number(profileInputs.weight_kg ?? current.current_weight_kg),
@@ -358,25 +361,39 @@ export default function Home() {
                 onChange={(event) => setFeedback({ ...feedback, current_body_fat_pct: Number(event.target.value) })}
               />
             </label>
-            <label>
-              How&apos;s it going?
-              <textarea
-                value={feedback.workout_feeling}
-                onChange={(event) => setFeedback({ ...feedback, workout_feeling: event.target.value })}
-                placeholder="Example: training felt okay, meals were solid, energy was a little low."
-              />
-            </label>
-            <div className="emoji-row">
-              {(["😊", "😐", "😫"] as const).map((emoji) => (
-                <button
-                  className={feedback.feeling_emoji === emoji ? "emoji active" : "emoji"}
-                  key={emoji}
-                  type="button"
-                  onClick={() => setFeedback({ ...feedback, feeling_emoji: emoji })}
-                >
-                  {emoji}
-                </button>
+            <div className="completion-row">
+              <span className="completion-label">Completion</span>
+              {([
+                { value: "low", label: "< 50%" },
+                { value: "medium", label: "~ 75%" },
+                { value: "high", label: "> 90%" }
+              ] as const).map(({ value, label }) => (
+                <label key={value} className="completion-option">
+                  <input
+                    type="radio"
+                    name="completion_rate"
+                    value={value}
+                    checked={feedback.completion_rate === value}
+                    onChange={() => setFeedback({ ...feedback, completion_rate: value })}
+                  />
+                  {label}
+                </label>
               ))}
+            </div>
+            <div className="feeling-section">
+              <span className="completion-label">Feeling</span>
+              <div className="emoji-row">
+                {(["😊", "😐", "😫"] as const).map((emoji) => (
+                  <button
+                    className={feedback.feeling_emoji === emoji ? "emoji active" : "emoji"}
+                    key={emoji}
+                    type="button"
+                    onClick={() => setFeedback({ ...feedback, feeling_emoji: emoji })}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
             </div>
             <button className="primary-button" disabled={loading === "tomorrow"}>
               {loading === "tomorrow" ? "Saving..." : "Make Tomorrow's Plan"}

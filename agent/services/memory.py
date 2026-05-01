@@ -29,6 +29,7 @@ MEMORY_COLLECTIONS = [
     "body_metrics",
     "daily_feedback_records",
     "exercise_feedback_records",
+    "plan_decisions",
 ]
 
 

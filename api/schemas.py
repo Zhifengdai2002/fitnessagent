@@ -38,6 +38,14 @@ class DailyFeedbackRequest(BaseModel):
     current_body_fat_pct: float = 24.0
     workout_feeling: str = ""
     feeling_emoji: Literal["😊", "😐", "😫"] = "😊"
+    completion_rate: Literal["low", "medium", "high"] = "high"
+
+
+COMPLETION_RATE_SCORES: dict[str, float] = {
+    "low": 0.5,     # < 50%
+    "medium": 0.75, # ~ 75%
+    "high": 1.0,    # > 90%
+}
 
 
 class ApiResponse(BaseModel):

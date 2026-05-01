@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import datetime
 from typing import Any
+from uuid import uuid4
 
 from agent.graph import run_agent
 from agent.services.memory import (
@@ -34,6 +35,7 @@ def record_daily_feedback_and_advance(
     current_body_fat_pct: float,
     workout_feeling: str,
     feeling_emoji: str,
+    adherence_score: float = 1.0,
     memory_store: dict[str, list[dict[str, Any]]] | None = None,
 ) -> tuple[FitnessAgentState, dict[str, list[dict[str, Any]]]]:
     store = normalize_memory_store(memory_store)
@@ -48,6 +50,7 @@ def record_daily_feedback_and_advance(
         feeling_emoji=feeling_emoji,
         current_weight_kg=current_weight_kg,
         current_body_fat_pct=current_body_fat_pct,
+        adherence_score=adherence_score,
     )
     today_state = {
         **dict(previous_result.get("current_state", {})),
@@ -117,8 +120,10 @@ def generate_next_cycle_after_feedback(
     current_body_fat_pct: float,
     workout_feeling: str,
     feeling_emoji: str,
+    adherence_score: float = 1.0,
     thread_id: str,
     memory_store: dict[str, list[dict[str, Any]]] | None = None,
+    session_state: dict[str, Any] | None = None,
 ) -> FitnessAgentState:
     store = normalize_memory_store(memory_store)
     latest_feedback = dict(previous_result.get("latest_feedback", {}))
@@ -134,6 +139,7 @@ def generate_next_cycle_after_feedback(
     latest_feedback.setdefault("motivation_level", motivation_level)
     latest_feedback.setdefault("recovery_score", recovery_score)
     latest_feedback.setdefault("pain_level", 5 if latest_feedback.get("pain_points") else 0)
+    latest_feedback["adherence_score"] = adherence_score
     latest_feedback["manual_log"] = {
         "date": feedback_date,
         "weight_kg": current_weight_kg,
@@ -178,6 +184,22 @@ def generate_next_cycle_after_feedback(
     }
     next_result = run_agent(rollover_state)
     next_result["daily_history"] = list(previous_result.get("daily_history", []))
+
+    # RL Phase 1: record (state, action) snapshot for this new cycle
+    store = _record_plan_decision(
+        result=next_result,
+        adherence_last_cycle=adherence_score,
+        memory_store=store,
+    )
+
+    # Level upgrade: check if user has earned a promotion
+    if session_state is not None:
+        _maybe_upgrade_fitness_level(
+            session_state=session_state,
+            profile_inputs=profile_inputs,
+            daily_history=list(next_result.get("daily_history", [])),
+        )
+
     return next_result
 
 
@@ -236,6 +258,7 @@ def build_daily_feedback(
     feeling_emoji: str,
     current_weight_kg: float,
     current_body_fat_pct: float,
+    adherence_score: float = 1.0,
 ) -> dict[str, Any]:
     fatigue_level, motivation_level, recovery_score = emoji_training_signals(feeling_emoji)
     pain_points = pain_points_from_text(workout_feeling)
@@ -246,7 +269,7 @@ def build_daily_feedback(
         "completed_workouts": completed_actions,
         "completed_actions": completed_actions,
         "feeling_emoji": feeling_emoji,
-        "adherence_score": 1.0 if completed_actions else 0.0,
+        "adherence_score": adherence_score,
         "fatigue_level": fatigue_level,
         "pain_level": pain_level,
         "pain_points": pain_points,
@@ -493,3 +516,134 @@ def coerce_string_list(value: Any, fallback: list[str]) -> list[str]:
 def normalize_memory_key(value: str) -> str:
     normalized = "".join(char.lower() for char in value if char.isalnum())
     return normalized or "item"
+
+
+# ---------------------------------------------------------------------------
+# RL Phase 1: plan decision snapshot + level upgrade
+# ---------------------------------------------------------------------------
+
+_LEVEL_ORDER = ["beginner", "intermediate", "advanced"]
+_UPGRADE_CYCLES = {"beginner": 3, "intermediate": 5}
+_DOWNGRADE_CYCLES = {"intermediate": 2, "advanced": 2}
+
+
+def _record_plan_decision(
+    result: FitnessAgentState | dict[str, Any],
+    adherence_last_cycle: float,
+    memory_store: dict[str, list[dict[str, Any]]],
+) -> dict[str, list[dict[str, Any]]]:
+    current_plan = result.get("current_plan", {})
+    user_profile = result.get("user_profile", {})
+    goals = result.get("goals", {})
+    current_state = result.get("current_state", {})
+    sessions = current_plan.get("workout_sessions", [])
+
+    focus_counts: dict[str, int] = {}
+    for session in sessions:
+        focus = str(session.get("focus", "")).strip()
+        if focus and not session.get("is_cancelled"):
+            focus_counts[focus] = focus_counts.get(focus, 0) + 1
+    total = max(len(sessions), 1)
+
+    entry = {
+        "decision_id": str(uuid4()),
+        "timestamp": str(datetime.today().date()),
+        "state": {
+            "weight_kg": current_state.get("weight_kg"),
+            "body_fat_pct": current_state.get("body_fat_pct"),
+            "adherence_last_cycle": adherence_last_cycle,
+            "goal": goals.get("primary_goal"),
+            "fitness_level": user_profile.get("fitness_level"),
+            "active_injuries": [
+                str(inj.get("area") or inj.get("areas") or "")
+                for inj in memory_store.get("injury_events", [])
+                if isinstance(inj, dict) and str(inj.get("status", "active")) == "active"
+            ],
+        },
+        "action": {
+            "sessions_per_week": len(sessions),
+            "avg_duration_minutes": int(
+                sum(s.get("duration_minutes", 60) for s in sessions) / total
+            ),
+            "focus_distribution": {
+                k: round(v / total, 2) for k, v in focus_counts.items()
+            },
+            "avg_sets_per_session": round(
+                sum(
+                    sum(e.get("sets", 4) for e in s.get("exercises", []))
+                    for s in sessions
+                ) / max(sum(len(s.get("exercises", [])) for s in sessions), 1),
+                1,
+            ),
+            "daily_calories": current_plan.get("nutrition_targets", {}).get("daily_calories"),
+        },
+        "reward": None,
+        "cycle_end_date": None,
+    }
+    return append_memory_item(memory_store, "plan_decisions", entry)
+
+
+def _cycle_completion_results(
+    daily_history: list[dict[str, Any]],
+    planned_per_cycle: int,
+) -> list[bool]:
+    """Per-cycle completion bool: True if completed sessions >= planned_per_cycle.
+
+    Groups daily_history by cycle_number, counts status=="completed" entries,
+    then drops the last (possibly in-progress) cycle before returning.
+    """
+    cycle_completed: dict[int, int] = {}
+    for entry in daily_history:
+        if not isinstance(entry, dict):
+            continue
+        cycle = entry.get("cycle_number")
+        if cycle is None:
+            continue
+        if str(entry.get("status", "")) == "completed":
+            cycle_completed[int(cycle)] = cycle_completed.get(int(cycle), 0) + 1
+
+    if not cycle_completed:
+        return []
+    sorted_cycles = sorted(cycle_completed.keys())[:-1]  # drop current/incomplete cycle
+    return [cycle_completed[c] >= planned_per_cycle for c in sorted_cycles]
+
+
+def _maybe_upgrade_fitness_level(
+    session_state: dict[str, Any],
+    profile_inputs: dict[str, Any],
+    daily_history: list[dict[str, Any]],
+) -> None:
+    current_level = str(profile_inputs.get("fitness_level", "beginner")).lower()
+    if current_level not in _LEVEL_ORDER:
+        return
+
+    planned = int(profile_inputs.get("sessions_per_week", 3))
+    results = _cycle_completion_results(daily_history, planned)
+    if not results:
+        return
+
+    # Upgrade: last N cycles all met target
+    if current_level in _UPGRADE_CYCLES:
+        n = _UPGRADE_CYCLES[current_level]
+        if len(results) >= n and all(results[-n:]):
+            idx = _LEVEL_ORDER.index(current_level)
+            new_level = _LEVEL_ORDER[idx + 1]
+            profile_inputs["fitness_level"] = new_level
+            session_state["profile_inputs"] = profile_inputs
+            session_state["last_action_message"] = (
+                f"Great progress! Your training level has been upgraded to {new_level}."
+            )
+            return
+
+    # Downgrade: last N cycles all failed
+    if current_level in _DOWNGRADE_CYCLES:
+        n = _DOWNGRADE_CYCLES[current_level]
+        if len(results) >= n and not any(results[-n:]):
+            idx = _LEVEL_ORDER.index(current_level)
+            new_level = _LEVEL_ORDER[idx - 1]
+            profile_inputs["fitness_level"] = new_level
+            session_state["profile_inputs"] = profile_inputs
+            session_state["last_action_message"] = (
+                f"Training level adjusted to {new_level} — "
+                "let's build consistency before increasing intensity."
+            )

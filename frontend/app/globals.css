@@ -213,6 +213,53 @@ textarea:focus {
   opacity: 0.65;
 }
 
+.completion-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.completion-label {
+  font-weight: 750;
+  color: var(--text);
+  min-width: 90px;
+}
+
+.completion-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffaf2;
+  color: var(--text);
+}
+
+.completion-option:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: white;
+}
+
+.completion-option input[type="radio"] {
+  display: none;
+  width: auto;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+}
+
+.feeling-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .date-pill,
 .success-banner,
 .error-banner {

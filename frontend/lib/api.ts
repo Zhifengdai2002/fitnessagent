@@ -126,8 +126,8 @@ export type GeneratePlanPayload = {
 export type DailyFeedbackPayload = {
   current_weight_kg: number;
   current_body_fat_pct: number;
-  workout_feeling: string;
   feeling_emoji: "😊" | "😐" | "😫";
+  completion_rate: "low" | "medium" | "high";
 };
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
