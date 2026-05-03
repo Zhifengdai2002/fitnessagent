@@ -1,9 +1,8 @@
-"""Tiny persistent vector store for local RAG documents.
+"""Persistent vector helpers for local and Milvus-backed RAG documents.
 
-This intentionally avoids a heavyweight service in phase one. It uses a
-deterministic hashing embedding so the retrieval path is testable offline; the
-module boundary can later be backed by Chroma, Milvus, or an external embedding
-model without changing planner/tool code.
+The default provider is a deterministic hashing embedding so tests stay
+offline. Production can switch to an OpenAI-compatible embedding endpoint such
+as Zhipu ``embedding-3`` without changing planner/tool code.
 """
 
 from __future__ import annotations
@@ -12,14 +11,21 @@ import hashlib
 import json
 import math
 import re
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
+
+from openai import OpenAI
+
+from agent.config import load_settings
 
 INDEX_DIR = Path(__file__).resolve().parents[2] / "data" / "rag_index"
 EXERCISE_INDEX_PATH = INDEX_DIR / "exercise_index.json"
 FOOD_INDEX_PATH = INDEX_DIR / "food_index.json"
-INDEX_VERSION = 3
-EMBEDDING_DIMENSIONS = 384
+KNOWLEDGE_INDEX_PATH = INDEX_DIR / "knowledge_index.json"
+INDEX_VERSION = 7
+HASH_EMBEDDING_DIMENSIONS = 384
+EMBEDDING_DIMENSIONS = load_settings().embedding_dimensions
 
 
 def build_index(documents: list[dict[str, Any]], index_path: Path = EXERCISE_INDEX_PATH) -> dict[str, Any]:
@@ -37,8 +43,8 @@ def build_index(documents: list[dict[str, Any]], index_path: Path = EXERCISE_IND
         )
     index = {
         "version": INDEX_VERSION,
-        "embedding": "hashing-bow-v1",
-        "dimensions": EMBEDDING_DIMENSIONS,
+        "embedding": embedding_backend_name(),
+        "dimensions": embedding_dimensions(),
         "documents": indexed_documents,
     }
     index_path.write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -100,9 +106,51 @@ def document_text(document: dict[str, Any]) -> str:
 
 
 def embed_text(text: str) -> list[float]:
-    vector = [0.0] * EMBEDDING_DIMENSIONS
+    provider = load_settings().embedding_provider
+    if provider in {"zhipu", "glm", "embedding-3", "api"}:
+        return _embed_text_remote(text)
+    return _embed_text_hash(text)
+
+
+def embedding_dimensions() -> int:
+    return load_settings().embedding_dimensions
+
+
+def embedding_backend_name() -> str:
+    settings = load_settings()
+    provider = settings.embedding_provider
+    if provider in {"zhipu", "glm", "embedding-3", "api"}:
+        return f"zhipu:{settings.embedding_model_name}:{settings.embedding_dimensions}"
+    return f"hashing-bow-v1:{HASH_EMBEDDING_DIMENSIONS}"
+
+
+def _embed_text_remote(text: str) -> list[float]:
+    settings = load_settings()
+    if not settings.has_embedding_api_key:
+        raise RuntimeError("EMBEDDING_PROVIDER requires EMBEDDING_API_KEY or MODEL_API_KEY")
+    response = _embedding_client().embeddings.create(
+        model=settings.embedding_model_name,
+        input=text or " ",
+        dimensions=settings.embedding_dimensions,
+    )
+    embedding = [float(value) for value in response.data[0].embedding]
+    if len(embedding) != settings.embedding_dimensions:
+        raise ValueError(
+            f"Embedding dimension mismatch: expected {settings.embedding_dimensions}, got {len(embedding)}"
+        )
+    return embedding
+
+
+@lru_cache(maxsize=1)
+def _embedding_client() -> OpenAI:
+    settings = load_settings()
+    return OpenAI(api_key=settings.embedding_api_key, base_url=settings.embedding_base_url)
+
+
+def _embed_text_hash(text: str) -> list[float]:
+    vector = [0.0] * HASH_EMBEDDING_DIMENSIONS
     for token in tokenize(text):
-        index = stable_hash(token) % EMBEDDING_DIMENSIONS
+        index = stable_hash(token) % HASH_EMBEDDING_DIMENSIONS
         vector[index] += token_weight(token)
     norm = math.sqrt(sum(value * value for value in vector))
     if norm <= 0:
@@ -173,6 +221,21 @@ SYNONYMS = {
     "shellfish": ["seafood"],
     "milk": ["dairy"],
     "gluten": ["wheat"],
+    "sleep": ["recovery", "fatigue", "readiness"],
+    "tired": ["fatigue", "recovery"],
+    "fatigue": ["tired", "recovery", "readiness"],
+    "recovery": ["sleep", "fatigue", "adaptation"],
+    "injury": ["pain", "strain", "contraindication"],
+    "injured": ["injury", "pain", "strain"],
+    "pain": ["injury", "discomfort", "redflag"],
+    "soreness": ["recovery", "fatigue"],
+    "warmup": ["preparation", "mobility"],
+    "overload": ["progression", "progressive"],
+    "progression": ["overload", "adaptation"],
+    "sodium": ["salt"],
+    "sugar": ["added", "calorie"],
+    "saturated": ["fat"],
+    "guideline": ["recommendation", "evidence"],
 }
 
 HIGH_VALUE_TOKENS = {
@@ -205,4 +268,18 @@ HIGH_VALUE_TOKENS = {
     "fiber",
     "low",
     "calorie",
+    "sleep",
+    "recovery",
+    "fatigue",
+    "injury",
+    "injured",
+    "pain",
+    "warmup",
+    "overload",
+    "progression",
+    "protein",
+    "sodium",
+    "sugar",
+    "guideline",
+    "evidence",
 }

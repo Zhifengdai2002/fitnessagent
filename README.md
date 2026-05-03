@@ -43,7 +43,7 @@ This structure makes the app closer to a real coaching system than a one-shot pl
 - **Agent Workflow:** LangGraph
 - **LLM:** Zhipu-compatible chat API
 - **Persistence:** MySQL with JSON fallback
-- **Knowledge Tools:** local exercise database, optional wger exercise import, food database, Milvus-ready vector RAG with local fallback, YouTube resource lookup
+- **Knowledge Tools:** local exercise database, optional wger exercise import, food database, Milvus-ready vector RAG with local fallback, configurable embeddings, YouTube resource lookup
 - **Language:** Python, TypeScript
 
 ## Current Architecture
@@ -112,7 +112,19 @@ MILVUS_EXERCISE_COLLECTION=fitness_exercises
 MILVUS_FOOD_COLLECTION=fitness_foods
 ```
 
-Build the exercise and food vector collections:
+By default, local tests use an offline hash embedding. To use Zhipu `embedding-3`
+for real RAG retrieval, add:
+
+```env
+EMBEDDING_PROVIDER=zhipu
+EMBEDDING_MODEL_NAME=embedding-3
+EMBEDDING_API_KEY=your_zhipu_or_zai_key
+EMBEDDING_BASE_URL=https://api.z.ai/api/paas/v4/
+EMBEDDING_DIMENSIONS=1024
+```
+
+Build or rebuild the exercise, food, and knowledge vector collections after
+changing the embedding provider or dimensions:
 
 ```bash
 .venv/bin/python -m agent.rag.milvus_indexer --recreate

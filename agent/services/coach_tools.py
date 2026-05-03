@@ -36,6 +36,7 @@ from agent.tools import (
     calculate_food_macros,
     find_foods,
     get_food_by_name,
+    query_knowledge_base,
     search_similar_exercises,
 )
 
@@ -75,6 +76,7 @@ ALLOWED_COACH_TOOLS = {
     "replace_food",
     "update_today_plan",
     "update_cycle_plan",
+    "query_knowledge_base",
     "write_memory",
 }
 
@@ -232,6 +234,30 @@ COACH_NATIVE_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "query_knowledge_base",
+            "description": (
+                "Search professional fitness, nutrition, recovery, injury, or exercise-form references. "
+                "Use for advice or knowledge questions. Does not mutate the plan."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "topic": {
+                        "type": "string",
+                        "enum": ["", "training", "nutrition", "recovery", "injury", "exercise_form"],
+                    },
+                    "goal": {"type": "string"},
+                    "level": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 6},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "write_memory",
             "description": (
                 "Persist something the user said that should be remembered in future sessions. "
@@ -315,6 +341,10 @@ def coach_tool_registry() -> dict[str, dict[str, Any]]:
         "update_cycle_plan": {
             "description": "Patch a non-today session in the current training cycle.",
             "handler": handle_update_cycle_plan_tool,
+        },
+        "query_knowledge_base": {
+            "description": "Search professional knowledge for advice questions.",
+            "handler": handle_query_knowledge_base_tool,
         },
         "write_memory": {
             "description": "Persist a user preference, injury, or metric for future sessions.",
@@ -432,6 +462,17 @@ def sanitize_tool_arguments(tool_name: str, arguments: dict[str, Any]) -> dict[s
         sanitized["target_day"] = str(arguments.get("target_day") or sanitized.get("target_day") or "").strip()
         sanitized["target_session"] = str(arguments.get("target_session") or sanitized.get("target_session") or "").strip()
         sanitized["intent"] = "update_cycle_plan"
+    elif tool_name == "query_knowledge_base":
+        topic = str(arguments.get("topic") or "").strip()
+        if topic not in {"", "training", "nutrition", "recovery", "injury", "exercise_form"}:
+            topic = ""
+        sanitized = {
+            "query": str(arguments.get("query") or arguments.get("summary") or "").strip(),
+            "topic": topic,
+            "goal": str(arguments.get("goal") or "").strip(),
+            "level": str(arguments.get("level") or "").strip(),
+            "limit": clamp_int(arguments.get("limit"), 1, 6, 4),
+        }
     elif tool_name == "write_memory":
         sanitized = {
             "collection": str(arguments.get("collection") or "").strip(),
@@ -488,6 +529,40 @@ def handle_update_cycle_plan_tool(context: dict[str, Any], arguments: dict[str, 
         session_state=context["session_state"],
         arguments=arguments,
     )
+
+
+def handle_query_knowledge_base_tool(context: dict[str, Any], arguments: dict[str, Any]) -> str:
+    from agent.services.memory import normalize_memory_store
+
+    sanitized = sanitize_tool_arguments("query_knowledge_base", arguments)
+    query = str(sanitized.get("query") or context.get("user_message") or "").strip()
+
+    session_state = context.get("session_state") or {}
+    profile = session_state.get("profile_inputs") or {}
+    goal = str(sanitized.get("goal") or profile.get("primary_goal") or "")
+    level = str(sanitized.get("level") or profile.get("fitness_level") or "")
+
+    memory = normalize_memory_store(session_state.get("memory_store") or {})
+    injury_areas = [
+        str(e.get("body_part") or "")
+        for e in memory.get("injury_events", [])
+        if e.get("body_part")
+    ]
+
+    results = query_knowledge_base(
+        query=query,
+        topic=str(sanitized.get("topic") or ""),
+        goal=goal,
+        level=level,
+        injury_areas=injury_areas,
+        limit=int(sanitized.get("limit") or 4),
+    )
+    if not results:
+        return json.dumps(
+            {"knowledge_results": [], "message": "No matching professional references found."},
+            ensure_ascii=False,
+        )
+    return json.dumps({"knowledge_results": results}, ensure_ascii=False)
 
 
 def handle_write_memory_tool(context: dict[str, Any], arguments: dict[str, Any]) -> str:

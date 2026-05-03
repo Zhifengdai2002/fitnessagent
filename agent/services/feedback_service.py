@@ -182,10 +182,13 @@ def generate_next_cycle_after_feedback(
             session_state={"thread_id": thread_id, "active_date": target_date},
         ),
     }
+    # RL Phase 1a: backfill reward for the cycle that just ended
+    store = _backfill_last_plan_reward(store, adherence_score, feedback_date)
+
     next_result = run_agent(rollover_state)
     next_result["daily_history"] = list(previous_result.get("daily_history", []))
 
-    # RL Phase 1: record (state, action) snapshot for this new cycle
+    # RL Phase 1b: record (state, action) snapshot for this new cycle
     store = _record_plan_decision(
         result=next_result,
         adherence_last_cycle=adherence_score,
@@ -525,6 +528,20 @@ def normalize_memory_key(value: str) -> str:
 _LEVEL_ORDER = ["beginner", "intermediate", "advanced"]
 _UPGRADE_CYCLES = {"beginner": 3, "intermediate": 5}
 _DOWNGRADE_CYCLES = {"intermediate": 2, "advanced": 2}
+
+
+def _backfill_last_plan_reward(
+    memory_store: dict[str, list[dict[str, Any]]],
+    reward: float,
+    cycle_end_date: str,
+) -> dict[str, list[dict[str, Any]]]:
+    decisions = memory_store.get("plan_decisions", [])
+    for entry in reversed(decisions):
+        if entry.get("reward") is None:
+            entry["reward"] = reward
+            entry["cycle_end_date"] = cycle_end_date
+            break
+    return memory_store
 
 
 def _record_plan_decision(

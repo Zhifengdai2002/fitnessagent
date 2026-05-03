@@ -9,13 +9,15 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 
-from agent.rag.documents import build_primary_exercise_documents, build_primary_food_documents
+from agent.rag.documents import build_primary_exercise_documents, build_primary_food_documents, build_primary_knowledge_documents
 from agent.rag.milvus_store import (
     build_milvus_collection,
     exercise_collection_name,
     food_collection_name,
+    knowledge_collection_name,
     milvus_enabled,
 )
+from agent.rag.vector_store import embedding_backend_name, embedding_dimensions
 
 
 def main() -> None:
@@ -28,6 +30,7 @@ def main() -> None:
 
     exercise_documents = build_primary_exercise_documents()
     food_documents = build_primary_food_documents()
+    knowledge_documents = build_primary_knowledge_documents()
     exercise_ok = build_milvus_collection(
         exercise_documents,
         collection_name=exercise_collection_name(),
@@ -38,13 +41,20 @@ def main() -> None:
         collection_name=food_collection_name(),
         recreate=args.recreate,
     )
-    if not exercise_ok or not food_ok:
+    knowledge_ok = build_milvus_collection(
+        knowledge_documents,
+        collection_name=knowledge_collection_name(),
+        recreate=args.recreate,
+    )
+    if not exercise_ok or not food_ok or not knowledge_ok:
         raise SystemExit("Failed to build one or more Milvus collections.")
 
     print(
         "Built Milvus collections: "
         f"{exercise_collection_name()}={len(exercise_documents)} docs {_source_counts(exercise_documents)}, "
-        f"{food_collection_name()}={len(food_documents)} docs {_source_counts(food_documents)}"
+        f"{food_collection_name()}={len(food_documents)} docs {_source_counts(food_documents)}, "
+        f"{knowledge_collection_name()}={len(knowledge_documents)} docs {_source_counts(knowledge_documents)}. "
+        f"Embedding={embedding_backend_name()} dim={embedding_dimensions()}"
     )
 
 

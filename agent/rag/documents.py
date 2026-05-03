@@ -12,6 +12,10 @@ EXERCISE_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "exercise_db.j
 FOOD_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "food_db.json"
 EXERCISE_RAG_SEED_PATH = Path(__file__).resolve().parents[2] / "data" / "knowledge" / "exercise_rag_seed.json"
 FOOD_RAG_SEED_PATH = Path(__file__).resolve().parents[2] / "data" / "knowledge" / "food_rag_seed.json"
+KNOWLEDGE_RAG_SEED_PATH = Path(__file__).resolve().parents[2] / "data" / "knowledge" / "professional_knowledge_seed.json"
+KNOWLEDGE_RAG_CORPUS_PATH = (
+    Path(__file__).resolve().parents[2] / "data" / "knowledge" / "professional_knowledge_corpus.json"
+)
 WGER_CACHE_PATH = Path(__file__).resolve().parents[2] / "data" / "external" / "wger_exercises.json"
 LOCAL_EXERCISE_FALLBACK_LIMIT = 10
 LOCAL_FOOD_FALLBACK_LIMIT = 5
@@ -158,6 +162,97 @@ def _build_food_documents(foods: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return documents
 
 
+def build_knowledge_documents() -> list[dict[str, Any]]:
+    """Return professional long-form knowledge documents for coaching QA."""
+
+    return _build_knowledge_documents(load_knowledge_documents_source())
+
+
+def build_primary_knowledge_documents() -> list[dict[str, Any]]:
+    """Return professional long-form knowledge documents for Milvus/main RAG."""
+
+    return _build_knowledge_documents(load_primary_knowledge_documents_source())
+
+
+def _build_knowledge_documents(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    documents: list[dict[str, Any]] = []
+    for item in items:
+        title = str(item.get("title", "")).strip()
+        if not title:
+            continue
+        chunks = item.get("chunks")
+        chunk_texts = chunks if isinstance(chunks, list) else [item.get("text", "")]
+        extra_metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+        for chunk_index, chunk in enumerate(chunk_texts):
+            chunk_text = str(chunk or "").strip()
+            if not chunk_text:
+                continue
+            source = str(item.get("source") or "professional_knowledge").strip()
+            source_url = str(item.get("source_url") or "").strip()
+            topic = str(item.get("topic") or "").strip()
+            section = str(item.get("section") or "").strip()
+            doc_type = str(item.get("doc_type") or "").strip()
+            evidence_type = str(item.get("evidence_type") or "").strip()
+            goals = _listify(item.get("goal"))
+            levels = _listify(item.get("level"))
+            tags = _listify(item.get("tags"))
+            doc_id_base = str(item.get("id") or _slug(title)).strip()
+
+            text = "\n".join(
+                piece
+                for piece in [
+                    f"Title: {title}",
+                    f"Source: {source}" if source else "",
+                    f"Topic: {topic}" if topic else "",
+                    f"Section: {section}" if section else "",
+                    f"Evidence type: {evidence_type}" if evidence_type else "",
+                    f"Goals: {_list_text(goals)}" if goals else "",
+                    f"Levels: {_list_text(levels)}" if levels else "",
+                    f"Tags: {_list_text(tags)}" if tags else "",
+                    chunk_text,
+                ]
+                if piece
+            )
+            document_id = f"{doc_id_base}:{chunk_index}"
+            metadata = {
+                "id": document_id,
+                "source": source,
+                "source_url": source_url,
+                "doc_type": doc_type,
+                "section": section,
+                "topic": topic,
+                "goal": goals,
+                "level": levels,
+                "tags": tags,
+                "evidence_type": evidence_type,
+                "chunk_index": chunk_index,
+                "version": str(item.get("version") or "professional_seed_v1"),
+                **extra_metadata,
+            }
+            documents.append(
+                {
+                    "id": f"knowledge:{document_id}",
+                    "type": "knowledge",
+                    "title": title,
+                    "text": text,
+                    "metadata": metadata,
+                    "raw": {
+                        "id": document_id,
+                        "title": title,
+                        "source": source,
+                        "source_url": source_url,
+                        "doc_type": doc_type,
+                        "section": section,
+                        "topic": topic,
+                        "evidence_type": evidence_type,
+                        "text": chunk_text,
+                        "chunk_index": chunk_index,
+                    },
+                }
+            )
+    return documents
+
+
 @lru_cache(maxsize=1)
 def load_exercise_documents_source() -> list[dict[str, Any]]:
     exercises = list(load_primary_exercise_documents_source())
@@ -171,6 +266,11 @@ def load_food_documents_source() -> list[dict[str, Any]]:
     foods = list(load_primary_food_documents_source())
     foods.extend(load_local_food_fallback_source())
     return _dedupe_by_name(foods)
+
+
+@lru_cache(maxsize=1)
+def load_knowledge_documents_source() -> list[dict[str, Any]]:
+    return load_primary_knowledge_documents_source()
 
 
 @lru_cache(maxsize=1)
@@ -196,6 +296,16 @@ def load_primary_food_documents_source() -> list[dict[str, Any]]:
     if FOOD_RAG_SEED_PATH.exists():
         return _dedupe_by_name(_load_json_list(FOOD_RAG_SEED_PATH))
     return []
+
+
+@lru_cache(maxsize=1)
+def load_primary_knowledge_documents_source() -> list[dict[str, Any]]:
+    sources: list[dict[str, Any]] = []
+    if KNOWLEDGE_RAG_CORPUS_PATH.exists():
+        sources.extend(_load_json_list(KNOWLEDGE_RAG_CORPUS_PATH))
+    if KNOWLEDGE_RAG_SEED_PATH.exists():
+        sources.extend(_load_json_list(KNOWLEDGE_RAG_SEED_PATH))
+    return _dedupe_knowledge_sources(sources)
 
 
 @lru_cache(maxsize=1)
@@ -256,6 +366,27 @@ def _dedupe_by_name(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if name_key in seen_names:
             continue
         seen_names.add(name_key)
+        deduped.append(item)
+    return deduped
+
+
+def _dedupe_knowledge_sources(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    for item in items:
+        title = str(item.get("title", "")).strip()
+        if not title:
+            continue
+        key_parts = [
+            str(item.get("id") or ""),
+            str(item.get("source_url") or ""),
+            title,
+            str(item.get("section") or ""),
+        ]
+        key = "|".join(_slug(part) for part in key_parts if part)
+        if not key or key in seen_keys:
+            continue
+        seen_keys.add(key)
         deduped.append(item)
     return deduped
 

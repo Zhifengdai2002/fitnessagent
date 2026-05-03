@@ -1,6 +1,7 @@
 langgraph
 langchain
 langchain-openai
+openai
 pydantic
 python-dotenv
 fastapi
@@ -12,3 +13,4 @@ sqlalchemy
 pymysql
 redis
 pytest
+pypdf

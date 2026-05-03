@@ -1,9 +1,8 @@
 """Optional Milvus backend for FitnessAgent RAG.
 
-Milvus stores the same document payload used by the local JSON index, but the
-retriever can query it as a real vector database. The embedding is still the
-current deterministic local embedding, which keeps tests offline and lets us
-swap in a real embedding model later without changing planner code.
+Milvus stores the same document payload used by the local JSON index, while the
+embedding provider is selected by configuration. In production this can be
+Zhipu/OpenAI-compatible embedding-3; tests can keep the local hash embedding.
 """
 
 from __future__ import annotations
@@ -13,7 +12,9 @@ from functools import lru_cache
 from typing import Any
 
 from agent.config import load_settings
-from agent.rag.vector_store import EMBEDDING_DIMENSIONS, document_text, embed_text, stable_hash
+from agent.rag.vector_store import document_text, embed_text, embedding_dimensions, stable_hash
+
+DEFAULT_INSERT_BATCH_SIZE = 200
 
 
 class MilvusUnavailable(RuntimeError):
@@ -31,6 +32,10 @@ def exercise_collection_name() -> str:
 
 def food_collection_name() -> str:
     return load_settings().milvus_food_collection
+
+
+def knowledge_collection_name() -> str:
+    return load_settings().milvus_knowledge_collection
 
 
 @lru_cache(maxsize=1)
@@ -65,7 +70,7 @@ def build_milvus_collection(
             client.drop_collection(collection_name)
         if not client.has_collection(collection_name):
             create_milvus_collection(client, collection_name)
-        client.insert(collection_name=collection_name, data=_document_rows(documents))
+        _insert_documents(client, collection_name, documents)
     except Exception:
         return False
     return True
@@ -85,7 +90,7 @@ def ensure_milvus_collection(
         if client.has_collection(collection_name):
             return True
         create_milvus_collection(client, collection_name)
-        client.insert(collection_name=collection_name, data=_document_rows(documents))
+        _insert_documents(client, collection_name, documents)
     except Exception:
         return False
     return True
@@ -126,7 +131,7 @@ def create_milvus_collection(client: Any, collection_name: str) -> None:
 
     schema = client.create_schema(auto_id=False, enable_dynamic_field=False)
     schema.add_field(field_name="id", datatype=DataType.INT64, is_primary=True)
-    schema.add_field(field_name="vector", datatype=DataType.FLOAT_VECTOR, dim=EMBEDDING_DIMENSIONS)
+    schema.add_field(field_name="vector", datatype=DataType.FLOAT_VECTOR, dim=embedding_dimensions())
     schema.add_field(field_name="document_json", datatype=DataType.VARCHAR, max_length=65_535)
 
     index_params = client.prepare_index_params()
@@ -147,14 +152,47 @@ def _document_rows(documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for index, document in enumerate(documents):
         text = document_text(document)
+        stored_document = _compact_document(document)
         rows.append(
             {
                 "id": _document_id(document, index),
                 "vector": embed_text(text),
-                "document_json": json.dumps(document, ensure_ascii=False),
+                "document_json": json.dumps(stored_document, ensure_ascii=False),
             }
         )
     return rows
+
+
+def _compact_document(document: dict[str, Any]) -> dict[str, Any]:
+    """Keep Milvus payloads small while preserving retriever behavior."""
+
+    raw = document.get("raw") if isinstance(document.get("raw"), dict) else {}
+    compact_raw = {
+        key: value
+        for key, value in raw.items()
+        if key not in {"chunks", "abstracts", "pages", "full_text", "html", "pdf_text"}
+    }
+    return {
+        "id": document.get("id", ""),
+        "type": document.get("type", ""),
+        "title": document.get("title", ""),
+        "text": document.get("text", ""),
+        "metadata": document.get("metadata") if isinstance(document.get("metadata"), dict) else {},
+        "raw": compact_raw,
+    }
+
+
+def _insert_documents(
+    client: Any,
+    collection_name: str,
+    documents: list[dict[str, Any]],
+    *,
+    batch_size: int = DEFAULT_INSERT_BATCH_SIZE,
+) -> None:
+    for start in range(0, len(documents), batch_size):
+        batch = documents[start : start + batch_size]
+        if batch:
+            client.insert(collection_name=collection_name, data=_document_rows(batch))
 
 
 def _document_id(document: dict[str, Any], fallback: int) -> int:

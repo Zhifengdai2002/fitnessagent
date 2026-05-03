@@ -1,0 +1,180 @@
+{
+  "html_sources": [
+    {
+      "id": "exrx_training_principles",
+      "title": "ExRx Training Principles",
+      "url": "https://exrx.net/ExInfo/TrainingPrinciples",
+      "source": "exrx",
+      "topic": "training",
+      "doc_type": "reference",
+      "evidence_type": "professional_reference",
+      "tags": ["training_principles", "program_design"]
+    },
+    {
+      "id": "exrx_weight_training_guidelines",
+      "title": "ExRx Weight Training Guidelines",
+      "url": "https://exrx.net/WeightTraining/Guidelines",
+      "source": "exrx",
+      "topic": "training",
+      "doc_type": "reference",
+      "evidence_type": "professional_reference",
+      "tags": ["strength_training", "program_design"]
+    },
+    {
+      "id": "exrx_warmup",
+      "title": "ExRx Warm-up",
+      "url": "https://exrx.net/ExInfo/WarmUp",
+      "source": "exrx",
+      "topic": "recovery",
+      "doc_type": "reference",
+      "evidence_type": "professional_reference",
+      "tags": ["warmup", "injury_prevention"]
+    },
+    {
+      "id": "who_physical_activity",
+      "title": "WHO Physical Activity Fact Sheet",
+      "url": "https://www.who.int/news-room/fact-sheets/detail/physical-activity",
+      "source": "who",
+      "topic": "training",
+      "doc_type": "guideline",
+      "evidence_type": "government_guideline",
+      "tags": ["physical_activity", "public_health"]
+    },
+    {
+      "id": "who_healthy_diet",
+      "title": "WHO Healthy Diet Fact Sheet",
+      "url": "https://www.who.int/news-room/fact-sheets/detail/healthy-diet",
+      "source": "who",
+      "topic": "nutrition",
+      "doc_type": "guideline",
+      "evidence_type": "government_guideline",
+      "tags": ["healthy_diet", "public_health"]
+    },
+    {
+      "id": "fitness_wiki_getting_started",
+      "title": "The Fitness Wiki Getting Started",
+      "url": "https://thefitness.wiki/getting-started-with-fitness/",
+      "source": "fitness_wiki",
+      "topic": "training",
+      "doc_type": "wiki",
+      "evidence_type": "community_wiki",
+      "level": ["beginner"],
+      "tags": ["beginner", "program_adherence"]
+    },
+    {
+      "id": "fitness_wiki_weight_loss",
+      "title": "The Fitness Wiki Weight Loss 101",
+      "url": "https://thefitness.wiki/weight-loss-101/",
+      "source": "fitness_wiki",
+      "topic": "nutrition",
+      "doc_type": "wiki",
+      "evidence_type": "community_wiki",
+      "goal": ["fat_loss"],
+      "tags": ["energy_balance", "weight_loss"]
+    },
+    {
+      "id": "fitness_wiki_muscle_building",
+      "title": "The Fitness Wiki Muscle Building 101",
+      "url": "https://thefitness.wiki/muscle-building-101/",
+      "source": "fitness_wiki",
+      "topic": "training",
+      "doc_type": "wiki",
+      "evidence_type": "community_wiki",
+      "goal": ["hypertrophy", "strength"],
+      "tags": ["muscle_gain", "progressive_overload"]
+    }
+  ],
+  "pdf_sources": [
+    {
+      "id": "dietary_guidelines_for_americans_2020_2025",
+      "title": "Dietary Guidelines for Americans, 2020-2025",
+      "url": "https://odphp.health.gov/sites/default/files/2026-02/dietary_guidelines_for_americans-2020-2025.pdf",
+      "source": "dietary_guidelines_for_americans",
+      "topic": "nutrition",
+      "doc_type": "guideline",
+      "evidence_type": "government_guideline",
+      "goal": ["fat_loss", "health"],
+      "tags": ["dietary_guidelines", "macronutrients", "healthy_eating_patterns"]
+    }
+  ],
+  "pubmed_queries": [
+    {
+      "id": "pubmed_resistance_training",
+      "term": "resistance training[Title/Abstract] AND humans[MeSH Terms] AND english[Language]",
+      "source": "pubmed",
+      "topic": "training",
+      "doc_type": "abstract",
+      "evidence_type": "peer_reviewed_abstract",
+      "goal": ["strength", "hypertrophy", "health"],
+      "tags": ["resistance_training"]
+    },
+    {
+      "id": "pubmed_protein_resistance_training",
+      "term": "protein intake resistance training muscle hypertrophy[Title/Abstract] AND english[Language]",
+      "source": "pubmed",
+      "topic": "nutrition",
+      "doc_type": "abstract",
+      "evidence_type": "peer_reviewed_abstract",
+      "goal": ["hypertrophy", "fat_loss"],
+      "tags": ["protein", "muscle_recovery"]
+    },
+    {
+      "id": "pubmed_weight_loss_exercise_nutrition",
+      "term": "weight loss exercise nutrition adults[Title/Abstract] AND english[Language]",
+      "source": "pubmed",
+      "topic": "nutrition",
+      "doc_type": "abstract",
+      "evidence_type": "peer_reviewed_abstract",
+      "goal": ["fat_loss"],
+      "tags": ["weight_loss", "energy_balance"]
+    },
+    {
+      "id": "pubmed_sleep_exercise_recovery",
+      "term": "sleep exercise recovery performance[Title/Abstract] AND english[Language]",
+      "source": "pubmed",
+      "topic": "recovery",
+      "doc_type": "abstract",
+      "evidence_type": "peer_reviewed_abstract",
+      "tags": ["sleep", "recovery", "fatigue"]
+    },
+    {
+      "id": "pubmed_exercise_injury_prevention",
+      "term": "exercise injury prevention strength training[Title/Abstract] AND english[Language]",
+      "source": "pubmed",
+      "topic": "injury",
+      "doc_type": "abstract",
+      "evidence_type": "peer_reviewed_abstract",
+      "tags": ["injury_prevention", "safety"]
+    },
+    {
+      "id": "pubmed_physical_activity_guidelines",
+      "term": "physical activity guidelines adults resistance training[Title/Abstract] AND english[Language]",
+      "source": "pubmed",
+      "topic": "training",
+      "doc_type": "abstract",
+      "evidence_type": "peer_reviewed_abstract",
+      "goal": ["health"],
+      "tags": ["physical_activity", "guidelines"]
+    },
+    {
+      "id": "pubmed_obesity_resistance_training",
+      "term": "obesity resistance training diet adults[Title/Abstract] AND english[Language]",
+      "source": "pubmed",
+      "topic": "nutrition",
+      "doc_type": "abstract",
+      "evidence_type": "peer_reviewed_abstract",
+      "goal": ["fat_loss", "health"],
+      "tags": ["obesity", "resistance_training"]
+    },
+    {
+      "id": "pubmed_periodization_strength_training",
+      "term": "periodization strength training adults[Title/Abstract] AND english[Language]",
+      "source": "pubmed",
+      "topic": "training",
+      "doc_type": "abstract",
+      "evidence_type": "peer_reviewed_abstract",
+      "goal": ["strength", "hypertrophy"],
+      "tags": ["periodization", "program_design"]
+    }
+  ]
+}

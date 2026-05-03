@@ -12,18 +12,31 @@ from typing import Any, Iterable
 from agent.rag.documents import (
     build_exercise_documents,
     build_food_documents,
+    build_knowledge_documents,
     build_primary_exercise_documents,
     build_primary_food_documents,
+    build_primary_knowledge_documents,
 )
 from agent.rag.milvus_store import (
     build_milvus_collection,
     ensure_milvus_collection,
     exercise_collection_name,
     food_collection_name,
+    knowledge_collection_name,
     milvus_enabled,
     search_milvus_collection,
 )
-from agent.rag.vector_store import EXERCISE_INDEX_PATH, FOOD_INDEX_PATH, INDEX_VERSION, build_index, load_index, search_index
+from agent.rag.vector_store import (
+    EXERCISE_INDEX_PATH,
+    FOOD_INDEX_PATH,
+    KNOWLEDGE_INDEX_PATH,
+    INDEX_VERSION,
+    build_index,
+    embedding_backend_name,
+    embedding_dimensions,
+    load_index,
+    search_index,
+)
 from agent.services.preference_scoring import food_is_avoided, score_exercise_preference, score_food_preference
 from agent.services.redis_store import load_cache_item, redis_cache_ttl_seconds, save_cache_item
 
@@ -45,7 +58,7 @@ def _normalize_many(values: Iterable[str] | None) -> set[str]:
 @lru_cache(maxsize=1)
 def exercise_index() -> dict[str, Any]:
     index = load_index(EXERCISE_INDEX_PATH)
-    if index.get("documents") and index.get("version") == INDEX_VERSION:
+    if _index_is_current(index):
         return index
     return build_index(build_exercise_documents())
 
@@ -53,9 +66,26 @@ def exercise_index() -> dict[str, Any]:
 @lru_cache(maxsize=1)
 def food_index() -> dict[str, Any]:
     index = load_index(FOOD_INDEX_PATH)
-    if index.get("documents") and index.get("version") == INDEX_VERSION:
+    if _index_is_current(index):
         return index
     return build_index(build_food_documents(), FOOD_INDEX_PATH)
+
+
+@lru_cache(maxsize=1)
+def knowledge_index() -> dict[str, Any]:
+    index = load_index(KNOWLEDGE_INDEX_PATH)
+    if _index_is_current(index):
+        return index
+    return build_index(build_knowledge_documents(), KNOWLEDGE_INDEX_PATH)
+
+
+def _index_is_current(index: dict[str, Any]) -> bool:
+    return bool(
+        index.get("documents")
+        and index.get("version") == INDEX_VERSION
+        and index.get("embedding") == embedding_backend_name()
+        and index.get("dimensions") == embedding_dimensions()
+    )
 
 
 def rebuild_exercise_index() -> dict[str, Any]:
@@ -90,6 +120,18 @@ def rebuild_food_index() -> dict[str, Any]:
     primary_documents = build_primary_food_documents()
     build_milvus_collection(primary_documents, collection_name=food_collection_name())
     return build_index(documents, FOOD_INDEX_PATH)
+
+
+def rebuild_knowledge_index() -> dict[str, Any]:
+    from agent.rag.documents import load_knowledge_documents_source, load_primary_knowledge_documents_source
+
+    load_knowledge_documents_source.cache_clear()
+    load_primary_knowledge_documents_source.cache_clear()
+    knowledge_index.cache_clear()
+    documents = build_knowledge_documents()
+    primary_documents = build_primary_knowledge_documents()
+    build_milvus_collection(primary_documents, collection_name=knowledge_collection_name())
+    return build_index(documents, KNOWLEDGE_INDEX_PATH)
 
 
 def retrieve_exercises(
@@ -201,6 +243,61 @@ def retrieve_foods(
     return _primary_first(scored, limit=limit)
 
 
+def retrieve_knowledge(
+    *,
+    query: str,
+    topic: str | None = None,
+    goal: str | None = None,
+    level: str | None = None,
+    injury_areas: list[str] | None = None,
+    limit: int = 4,
+) -> list[dict[str, Any]]:
+    """Retrieve professional training/nutrition/recovery knowledge snippets."""
+
+    requested_topic = _normalize(topic) if topic else ""
+    requested_goal = _normalize(goal) if goal else ""
+    requested_level = _normalize(level) if level else ""
+    injury_set = {_normalize(a) for a in (injury_areas or []) if a}
+    results = _search_knowledge_documents(query, limit=max(limit * 10, 40))
+    scored: list[tuple[float, int, dict[str, Any]]] = []
+    for position, result in enumerate(results):
+        document = result.get("document", {})
+        raw = dict(document.get("raw") or {})
+        metadata = dict(document.get("metadata") or {})
+        title = str(document.get("title") or raw.get("title") or "").strip()
+        text = str(raw.get("text") or document.get("text") or "").strip()
+        if not title or not text:
+            continue
+        score = float(result.get("score") or 0.0)
+        score += _knowledge_metadata_score(
+            metadata=metadata,
+            requested_topic=requested_topic,
+            requested_goal=requested_goal,
+            requested_level=requested_level,
+            injury_set=injury_set,
+        )
+        scored.append(
+            (
+                score,
+                position,
+                {
+                    "title": title,
+                    "text": text,
+                    "source": str(metadata.get("source") or raw.get("source") or "").strip(),
+                    "source_url": str(metadata.get("source_url") or raw.get("source_url") or "").strip(),
+                    "doc_type": str(metadata.get("doc_type") or raw.get("doc_type") or "").strip(),
+                    "section": str(metadata.get("section") or raw.get("section") or "").strip(),
+                    "topic": str(metadata.get("topic") or raw.get("topic") or "").strip(),
+                    "evidence_type": str(metadata.get("evidence_type") or raw.get("evidence_type") or "").strip(),
+                    "metadata": metadata,
+                },
+            )
+        )
+
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return _dedupe_knowledge_results([item for _, _, item in scored], limit=limit)
+
+
 def _metadata_score(
     *,
     metadata: dict[str, Any],
@@ -229,6 +326,42 @@ def _metadata_score(
     if source_muscles and source_muscles.intersection(secondary_muscles):
         score += 0.15
     score += _level_score(requested_level, difficulty)
+    return score
+
+
+def _knowledge_metadata_score(
+    *,
+    metadata: dict[str, Any],
+    requested_topic: str,
+    requested_goal: str,
+    requested_level: str,
+    injury_set: set[str] | None = None,
+) -> float:
+    score = 0.0
+    topics = _normalize_values(metadata.get("topic"))
+    goals = _normalize_values(metadata.get("goal"))
+    levels = _normalize_values(metadata.get("level"))
+    evidence_type = _normalize(str(metadata.get("evidence_type") or ""))
+    source = _normalize(str(metadata.get("source") or ""))
+
+    if requested_topic and requested_topic in topics:
+        score += 0.35
+    if requested_goal and requested_goal in goals:
+        score += 0.2
+    if requested_level and requested_level in levels:
+        score += 0.12
+    if evidence_type in {"government_guideline", "meta_analysis", "systematic_review"}:
+        score += 0.12
+    elif evidence_type in {"clinical_guideline", "professional_reference"}:
+        score += 0.08
+    if source in {"exrx", "pmc", "pubmed", "dietary_guidelines_for_americans"}:
+        score += 0.04
+
+    if injury_set:
+        muscle_groups = _normalize_values(metadata.get("muscle_group") or metadata.get("tags"))
+        if muscle_groups & injury_set:
+            score -= 0.3
+
     return score
 
 
@@ -296,10 +429,44 @@ def _search_food_documents(query: str, *, limit: int) -> list[dict[str, Any]]:
     return local_results
 
 
+def _search_knowledge_documents(query: str, *, limit: int) -> list[dict[str, Any]]:
+    if milvus_enabled():
+        milvus_cache_key = _rag_search_cache_key(
+            kind="knowledge",
+            backend=f"milvus:{knowledge_collection_name()}",
+            query=query,
+            limit=limit,
+        )
+        cached_results = _load_cached_rag_search(milvus_cache_key)
+        if cached_results is not None:
+            return cached_results
+
+        documents = build_primary_knowledge_documents()
+        ensure_milvus_collection(documents, collection_name=knowledge_collection_name())
+        milvus_results = search_milvus_collection(
+            query,
+            collection_name=knowledge_collection_name(),
+            limit=limit,
+        )
+        if milvus_results:
+            _save_cached_rag_search(milvus_cache_key, milvus_results)
+            return milvus_results
+
+    local_cache_key = _rag_search_cache_key(kind="knowledge", backend="local", query=query, limit=limit)
+    cached_results = _load_cached_rag_search(local_cache_key)
+    if cached_results is not None:
+        return cached_results
+    local_results = search_index(query, index=knowledge_index(), limit=limit)
+    _save_cached_rag_search(local_cache_key, local_results)
+    return local_results
+
+
 def _rag_search_cache_key(*, kind: str, backend: str, query: str, limit: int) -> str:
     payload = {
         "version": RAG_SEARCH_CACHE_VERSION,
         "index_version": INDEX_VERSION,
+        "embedding": embedding_backend_name(),
+        "dimensions": embedding_dimensions(),
         "kind": kind,
         "backend": backend,
         "query": " ".join(str(query or "").strip().lower().split()),
@@ -375,6 +542,34 @@ def _dedupe_exercise_candidates(candidates: list[dict[str, Any]], *, limit: int)
         if len(selected) >= limit:
             break
     return selected
+
+
+def _dedupe_knowledge_results(candidates: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    for candidate in candidates:
+        key = "|".join(
+            [
+                _normalize(str(candidate.get("source") or "")),
+                _normalize(str(candidate.get("title") or "")),
+                _normalize(str(candidate.get("section") or "")),
+            ]
+        )
+        if not key or key in seen_keys:
+            continue
+        seen_keys.add(key)
+        selected.append(candidate)
+        if len(selected) >= limit:
+            break
+    return selected
+
+
+def _normalize_values(value: Any) -> set[str]:
+    if isinstance(value, str):
+        return {_normalize(value)} if value.strip() else set()
+    if isinstance(value, Iterable):
+        return _normalize_many(str(item) for item in value)
+    return set()
 
 
 def _canonical_exercise_key(name: str) -> str:
