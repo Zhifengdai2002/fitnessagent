@@ -35,7 +35,7 @@ def load_state_from_mysql(user_id: str = DEMO_USER_ID) -> dict[str, Any]:
     try:
         engine = create_engine(database_url(), pool_pre_ping=True)
         metadata = MetaData()
-        users, app_states, _ = _ensure_schema(engine, metadata)
+        users, app_states, _, __ = _ensure_schema(engine, metadata)
         with engine.begin() as connection:
             connection.execute(
                 users.insert().prefix_with("IGNORE"),
@@ -71,7 +71,7 @@ def save_state_to_mysql(payload: dict[str, Any], user_id: str = DEMO_USER_ID) ->
     try:
         engine = create_engine(database_url(), pool_pre_ping=True)
         metadata = MetaData()
-        users, app_states, mirror_tables = _ensure_schema(engine, metadata)
+        users, app_states, mirror_tables, _ = _ensure_schema(engine, metadata)
         with engine.begin() as connection:
             user_insert = mysql_insert(users).values(id=user_id, created_at=now, updated_at=now)
             connection.execute(
@@ -108,9 +108,10 @@ def delete_state_from_mysql(user_id: str = DEMO_USER_ID) -> bool:
     try:
         engine = create_engine(database_url(), pool_pre_ping=True)
         metadata = MetaData()
-        _, app_states, mirror_tables = _ensure_schema(engine, metadata)
+        _, app_states, mirror_tables, __ = _ensure_schema(engine, metadata)
         with engine.begin() as connection:
-            _delete_structured_rows(connection, mirror_tables, user_id)
+            for table in mirror_tables.values():
+                connection.execute(delete(table).where(table.c.user_id == user_id))
             connection.execute(delete(app_states).where(app_states.c.user_id == user_id))
     except Exception:
         return False
@@ -226,6 +227,213 @@ def save_video_resource_to_mysql(
     return True
 
 
+def upsert_learned_preferences_to_mysql(
+    learned_preferences: dict[str, Any],
+    user_id: str = DEMO_USER_ID,
+) -> bool:
+    """Upsert Layer-3 derived preferences into user_learned_preferences table."""
+    if not is_mysql_configured() or not learned_preferences:
+        return False
+    try:
+        from sqlalchemy import MetaData, create_engine
+        from sqlalchemy.dialects.mysql import insert as mysql_insert
+    except ImportError:
+        return False
+    now = _utc_now()
+    try:
+        engine = create_engine(database_url(), pool_pre_ping=True)
+        metadata = MetaData()
+        users, _, _, prefs_table = _ensure_schema(engine, metadata)
+        with engine.begin() as connection:
+            user_insert = mysql_insert(users).values(id=user_id, created_at=now, updated_at=now)
+            connection.execute(user_insert.on_duplicate_key_update(updated_at=now))
+            stmt = mysql_insert(prefs_table).values(
+                user_id=user_id,
+                liked_exercises_json=_json_dump(learned_preferences.get("liked_exercises", [])),
+                difficult_exercises_json=_json_dump(learned_preferences.get("difficult_exercises", [])),
+                preferred_focuses_json=_json_dump(learned_preferences.get("preferred_focuses", [])),
+                avoided_foods_json=_json_dump(learned_preferences.get("avoided_foods", [])),
+                preferred_foods_json=_json_dump(learned_preferences.get("preferred_foods", [])),
+                active_injury_areas_json=_json_dump(learned_preferences.get("active_injury_areas", [])),
+                updated_at=now,
+            )
+            connection.execute(stmt.on_duplicate_key_update(
+                liked_exercises_json=stmt.inserted.liked_exercises_json,
+                difficult_exercises_json=stmt.inserted.difficult_exercises_json,
+                preferred_focuses_json=stmt.inserted.preferred_focuses_json,
+                avoided_foods_json=stmt.inserted.avoided_foods_json,
+                preferred_foods_json=stmt.inserted.preferred_foods_json,
+                active_injury_areas_json=stmt.inserted.active_injury_areas_json,
+                updated_at=now,
+            ))
+    except Exception:
+        return False
+    return True
+
+
+def load_recent_memory_from_mysql(
+    user_id: str = DEMO_USER_ID,
+    *,
+    since_date: str | None = None,
+    injury_window_days: int = 7,
+    feedback_limit: int = 14,
+    exercise_feedback_limit: int = 30,
+) -> dict[str, Any]:
+    """Query Layer-2 event tables and Layer-3 preferences for memory_context building.
+
+    Returns a dict with keys matching legacy memory_context collections.
+    Returns empty dict if MySQL not configured or on error.
+    """
+    if not is_mysql_configured():
+        return {}
+    try:
+        from sqlalchemy import MetaData, create_engine, select, desc
+    except ImportError:
+        return {}
+
+    from datetime import date, timedelta
+    today = since_date or date.today().isoformat()
+
+    try:
+        engine = create_engine(database_url(), pool_pre_ping=True)
+        metadata = MetaData()
+        _, _, mirror_tables, prefs_table = _ensure_schema(engine, metadata)
+
+        body_t = mirror_tables["body_metrics"]
+        daily_t = mirror_tables["daily_feedback_records"]
+        ex_t = mirror_tables["exercise_feedback_records"]
+        mem_t = mirror_tables["memory_events"]
+
+        with engine.connect() as connection:
+            # body_metrics: last 14 records
+            body_rows = connection.execute(
+                select(body_t).where(body_t.c.user_id == user_id)
+                .order_by(desc(body_t.c.record_date)).limit(14)
+            ).fetchall()
+
+            # daily_feedback: last feedback_limit records
+            daily_rows = connection.execute(
+                select(daily_t).where(daily_t.c.user_id == user_id)
+                .order_by(desc(daily_t.c.record_date)).limit(feedback_limit)
+            ).fetchall()
+
+            # exercise_feedback: last exercise_feedback_limit records
+            ex_rows = connection.execute(
+                select(ex_t).where(ex_t.c.user_id == user_id)
+                .order_by(desc(ex_t.c.record_date)).limit(exercise_feedback_limit)
+            ).fetchall()
+
+            # injury_events from memory_events (active, within window)
+            injury_cutoff = (
+                date.fromisoformat(today) - timedelta(days=injury_window_days)
+            ).isoformat()
+            injury_rows = connection.execute(
+                select(mem_t).where(
+                    mem_t.c.user_id == user_id,
+                    mem_t.c.event_type == "injury_events",
+                    mem_t.c.event_date >= injury_cutoff,
+                    mem_t.c.status == "active",
+                )
+                .order_by(desc(mem_t.c.event_date))
+            ).fetchall()
+
+            # food/training preferences from memory_events
+            food_rows = connection.execute(
+                select(mem_t).where(
+                    mem_t.c.user_id == user_id,
+                    mem_t.c.event_type == "food_preferences",
+                ).order_by(desc(mem_t.c.event_date)).limit(10)
+            ).fetchall()
+
+            training_rows = connection.execute(
+                select(mem_t).where(
+                    mem_t.c.user_id == user_id,
+                    mem_t.c.event_type == "training_preferences",
+                ).order_by(desc(mem_t.c.event_date)).limit(10)
+            ).fetchall()
+
+            plan_log_rows = connection.execute(
+                select(mirror_tables["plan_modification_logs"])
+                .where(mirror_tables["plan_modification_logs"].c.user_id == user_id)
+                .order_by(desc(mirror_tables["plan_modification_logs"].c.event_date))
+                .limit(12)
+            ).fetchall()
+
+            # Layer-3 learned preferences
+            prefs_row = connection.execute(
+                select(prefs_table).where(prefs_table.c.user_id == user_id)
+            ).first()
+
+    except Exception:
+        return {}
+
+    def _row_payload(row: Any) -> dict[str, Any]:
+        payload = _json_load(getattr(row, "payload_json", "") or "")
+        return payload if isinstance(payload, dict) else {}
+
+    def _plan_log_dict(row: Any) -> dict[str, Any]:
+        return {
+            "date": getattr(row, "event_date", ""),
+            "action_type": getattr(row, "action_type", ""),
+            "summary": getattr(row, "summary", ""),
+        }
+
+    active_injuries = [_row_payload(r) for r in injury_rows]
+
+    learned_preferences: dict[str, Any] = {}
+    if prefs_row:
+        learned_preferences = {
+            "liked_exercises":    _json_load(getattr(prefs_row, "liked_exercises_json", "[]") or "[]"),
+            "difficult_exercises": _json_load(getattr(prefs_row, "difficult_exercises_json", "[]") or "[]"),
+            "preferred_focuses":  _json_load(getattr(prefs_row, "preferred_focuses_json", "[]") or "[]"),
+            "avoided_foods":      _json_load(getattr(prefs_row, "avoided_foods_json", "[]") or "[]"),
+            "preferred_foods":    _json_load(getattr(prefs_row, "preferred_foods_json", "[]") or "[]"),
+            "active_injury_areas": [
+                str(inj.get("area") or inj.get("injury_area") or "")
+                for inj in active_injuries
+                if isinstance(inj, dict) and (inj.get("area") or inj.get("injury_area"))
+            ],
+        }
+
+    return {
+        "active_injuries": active_injuries,
+        "recent_body_metrics": [
+            {
+                "date": getattr(r, "record_date", ""),
+                "weight_kg": getattr(r, "weight_kg", None),
+                "body_fat_pct": getattr(r, "body_fat_pct", None),
+            }
+            for r in reversed(body_rows)
+        ],
+        "recent_daily_feedback": [
+            {
+                "date": getattr(r, "record_date", ""),
+                "status": getattr(r, "workout_status", ""),
+                "plan_focus": getattr(r, "focus", ""),
+                "feeling": getattr(r, "workout_feeling", ""),
+                "emoji": getattr(r, "feeling_emoji", ""),
+                "completed_actions": _json_load(getattr(r, "completed_actions_json", "[]") or "[]"),
+            }
+            for r in reversed(daily_rows)
+        ],
+        "recent_exercise_feedback": [
+            {
+                "date": getattr(r, "record_date", ""),
+                "exercise_name": getattr(r, "exercise_name", ""),
+                "focus": getattr(r, "focus", ""),
+                "status": getattr(r, "workout_status", ""),
+                "feeling_emoji": getattr(r, "feeling_emoji", ""),
+                "workout_feeling": getattr(r, "workout_feeling", ""),
+            }
+            for r in reversed(ex_rows)
+        ],
+        "recent_food_preferences":     [_row_payload(r) for r in reversed(food_rows)],
+        "recent_training_preferences": [_row_payload(r) for r in reversed(training_rows)],
+        "recent_plan_modifications":   [_plan_log_dict(r) for r in reversed(plan_log_rows)],
+        "learned_preferences":         learned_preferences,
+    }
+
+
 def _ensure_video_cache_schema(engine: Any, metadata: Any) -> tuple[Any, Any]:
     from sqlalchemy import Column, DateTime, ForeignKey, String, Table, Text
 
@@ -259,7 +467,7 @@ def _ensure_video_cache_schema(engine: Any, metadata: Any) -> tuple[Any, Any]:
     return users, video_cache
 
 
-def _ensure_schema(engine: Any, metadata: Any) -> tuple[Any, Any, dict[str, Any]]:
+def _ensure_schema(engine: Any, metadata: Any) -> tuple[Any, Any, dict[str, Any], Any]:
     from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, Table, Text
 
     users = Table(
@@ -363,6 +571,19 @@ def _ensure_schema(engine: Any, metadata: Any) -> tuple[Any, Any, dict[str, Any]
         Column("created_at", DateTime, nullable=False),
         extend_existing=True,
     )
+    user_learned_preferences = Table(
+        "user_learned_preferences",
+        metadata,
+        Column("user_id", String(64), ForeignKey("users.id"), primary_key=True),
+        Column("liked_exercises_json", Text, nullable=False, default="[]"),
+        Column("difficult_exercises_json", Text, nullable=False, default="[]"),
+        Column("preferred_focuses_json", Text, nullable=False, default="[]"),
+        Column("avoided_foods_json", Text, nullable=False, default="[]"),
+        Column("preferred_foods_json", Text, nullable=False, default="[]"),
+        Column("active_injury_areas_json", Text, nullable=False, default="[]"),
+        Column("updated_at", DateTime, nullable=False),
+        extend_existing=True,
+    )
     metadata.create_all(engine)
     return users, app_states, {
         "body_metrics": body_metrics,
@@ -371,7 +592,7 @@ def _ensure_schema(engine: Any, metadata: Any) -> tuple[Any, Any, dict[str, Any]
         "chat_messages": chat_messages,
         "plan_modification_logs": plan_modification_logs,
         "memory_events": memory_events,
-    }
+    }, user_learned_preferences
 
 
 def _mirror_structured_state(
@@ -381,18 +602,69 @@ def _mirror_structured_state(
     user_id: str,
     now: datetime,
 ) -> None:
-    _delete_structured_rows(connection, tables, user_id)
+    from sqlalchemy.dialects.mysql import insert as mysql_insert
+
     rows_by_table = _structured_rows_from_payload(payload, user_id, now)
-    for table_name, rows in rows_by_table.items():
+
+    # Tables with natural composite PK → upsert (ON DUPLICATE KEY UPDATE)
+    for tname in ("body_metrics", "daily_feedback_records"):
+        table = tables.get(tname)
+        if table is None:
+            continue
+        for row in rows_by_table.get(tname, []):
+            stmt = mysql_insert(table).values(**row)
+            # build update dict from all non-PK columns
+            update_cols = {c.name: getattr(stmt.inserted, c.name)
+                          for c in table.columns
+                          if c.name not in ("user_id", "record_date")}
+            connection.execute(stmt.on_duplicate_key_update(**update_cols))
+
+    # Append-only tables (auto-increment PK) → insert only rows not already present
+    for tname in ("exercise_feedback_records", "plan_modification_logs",
+                  "chat_messages", "memory_events"):
+        table = tables.get(tname)
+        if table is None:
+            continue
+        new_rows = rows_by_table.get(tname, [])
+        if not new_rows:
+            continue
+        _insert_new_rows_only(connection, table, new_rows, user_id, tname)
+
+
+def _insert_new_rows_only(
+    connection: Any,
+    table: Any,
+    rows: list[dict[str, Any]],
+    user_id: str,
+    table_name: str,
+) -> None:
+    """Insert only rows that don't already exist, using table-specific dedup keys."""
+    from sqlalchemy import select, and_
+
+    dedup_cols: dict[str, list[str]] = {
+        "exercise_feedback_records": ["record_date", "sequence_index"],
+        "plan_modification_logs":    ["event_date", "action_type", "recorded_at"],
+        "chat_messages":             ["sequence_index"],
+        "memory_events":             ["event_type", "event_key"],
+    }
+    key_cols = dedup_cols.get(table_name, [])
+    if not key_cols:
         if rows:
-            connection.execute(tables[table_name].insert(), rows)
+            connection.execute(table.insert(), rows)
+        return
 
+    # Fetch existing dedup keys for this user
+    existing_rows = connection.execute(
+        select(*[table.c[c] for c in key_cols]).where(table.c.user_id == user_id)
+    ).fetchall()
+    existing_keys = {tuple(str(getattr(r, c) or "") for c in key_cols) for r in existing_rows}
 
-def _delete_structured_rows(connection: Any, tables: dict[str, Any], user_id: str) -> None:
-    from sqlalchemy import delete
-
-    for table in tables.values():
-        connection.execute(delete(table).where(table.c.user_id == user_id))
+    new_rows = [
+        r for r in rows
+        if tuple(str(r.get(c) or "") for c in key_cols) not in existing_keys
+    ]
+    if new_rows:
+        connection.execute(table.insert(), new_rows)
 
 
 def _structured_rows_from_payload(

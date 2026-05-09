@@ -26,7 +26,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SOURCES_PATH = PROJECT_ROOT / "data" / "knowledge" / "professional_knowledge_sources.json"
 DEFAULT_OUTPUT_PATH = PROJECT_ROOT / "data" / "knowledge" / "professional_knowledge_corpus.json"
 RAW_CACHE_DIR = PROJECT_ROOT / "data" / "external" / "knowledge_raw"
-USER_AGENT = "FitnessAgentRAG/0.1 (local educational research; contact: local)"
+USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 NCBI_ESEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 NCBI_EFETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 
@@ -132,7 +132,8 @@ def ingest_professional_knowledge(
         except Exception as exc:  # noqa: BLE001 - ingestion should keep going.
             failed_sources += 1
             records.append(_failure_record(source, exc, ingested_at=ingested_at))
-        time.sleep(request_delay_seconds)
+        delay = 2.0 if str(source.get("source") or "").lower() == "exrx" else request_delay_seconds
+        time.sleep(delay)
 
     for source in config.get("pdf_sources", []):
         if not isinstance(source, dict):

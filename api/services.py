@@ -14,10 +14,15 @@ from agent.services.feedback_service import (
     record_daily_feedback_and_advance,
 )
 from agent.services.memory import (
+    build_learned_preferences,
     compact_conversation_memory,
     default_memory_store,
     memory_context_for_planning,
     normalize_memory_store,
+)
+from agent.services.mysql_store import (
+    is_mysql_configured,
+    upsert_learned_preferences_to_mysql,
 )
 from agent.services.persistence import (
     PERSISTED_SESSION_KEYS,
@@ -82,6 +87,7 @@ def generate_plan(request: GeneratePlanRequest) -> dict[str, Any]:
         session_state["assistant_chat_messages"] = []
         session_state["last_action_message"] = "Plan generated."
         save_app_state(session_state)
+        _upsert_learned_preferences(session_state)
         return _state_snapshot(session_state)
 
 
@@ -107,6 +113,7 @@ def chat(message: str) -> tuple[str, dict[str, Any]]:
         session_state["assistant_chat_messages"] = window
         _refresh_agent_memory_context(session_state)
         save_app_state(session_state)
+        _upsert_learned_preferences(session_state)
         return reply, _state_snapshot(session_state)
 
 
@@ -200,6 +207,7 @@ def make_tomorrow_plan(request: DailyFeedbackRequest) -> dict[str, Any]:
             feeling_emoji=request.feeling_emoji,
         )
         save_app_state(session_state)
+        _upsert_learned_preferences(session_state)
         return _state_snapshot(session_state)
 
 
@@ -290,3 +298,15 @@ def _refresh_agent_memory_context(session_state: dict[str, Any]) -> None:
         result=result,
         session_state=session_state,
     )
+
+
+def _upsert_learned_preferences(session_state: dict[str, Any]) -> None:
+    """Compute learned preferences from current state and upsert to Layer-3 MySQL table."""
+    if not is_mysql_configured():
+        return
+    memory_store = normalize_memory_store(session_state.get("memory_store"))
+    result = session_state.get("agent_result") or {}
+    memory_context = result.get("memory_context") or {}
+    active_injuries = memory_context.get("active_injuries") or []
+    learned = build_learned_preferences(memory_store, active_injuries)
+    upsert_learned_preferences_to_mysql(learned)

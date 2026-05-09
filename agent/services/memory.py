@@ -17,6 +17,11 @@ from datetime import date, datetime
 from typing import Any
 
 from agent.services.persistence import safe_iso_date
+from agent.services.mysql_store import (
+    DEMO_USER_ID,
+    is_mysql_configured,
+    load_recent_memory_from_mysql,
+)
 
 CHAT_WINDOW_LIMIT = 12
 CONVERSATION_SUMMARY_CHAR_LIMIT = 1400
@@ -79,23 +84,50 @@ def memory_context_for_planning(
     profile_inputs: dict[str, Any] | None = None,
     result: dict[str, Any] | None = None,
     session_state: dict[str, Any] | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     store = normalize_memory_store(memory_store)
     safe_target = safe_iso_date(target_date) or date.today().isoformat()
-    active_injuries = [
-        injury
-        for injury in store.get("injury_events", [])
-        if memory_injury_is_active(injury, safe_target)
-    ]
-    legacy_context = {
-        "active_injuries": active_injuries,
-        "recent_food_preferences": store.get("food_preferences", [])[-10:],
-        "recent_training_preferences": store.get("training_preferences", [])[-10:],
-        "recent_plan_modifications": store.get("plan_modification_logs", [])[-12:],
-        "recent_daily_feedback": store.get("daily_feedback_records", [])[-14:],
-        "recent_exercise_feedback": store.get("exercise_feedback_records", [])[-30:],
-        "recent_body_metrics": store.get("body_metrics", [])[-14:],
-    }
+
+    # Try MySQL for event data (Layer 2+3); fall back to in-memory memory_store
+    mysql_data: dict[str, Any] = {}
+    if is_mysql_configured():
+        _uid = user_id or (session_state or {}).get("user_id") or DEMO_USER_ID
+        mysql_data = load_recent_memory_from_mysql(
+            _uid,
+            since_date=safe_target,
+            injury_window_days=7,
+            feedback_limit=14,
+            exercise_feedback_limit=30,
+        )
+
+    if mysql_data:
+        active_injuries = mysql_data.get("active_injuries", [])
+        legacy_context = {
+            "active_injuries":             active_injuries,
+            "recent_food_preferences":     mysql_data.get("recent_food_preferences", []),
+            "recent_training_preferences": mysql_data.get("recent_training_preferences", []),
+            "recent_plan_modifications":   mysql_data.get("recent_plan_modifications", []),
+            "recent_daily_feedback":       mysql_data.get("recent_daily_feedback", []),
+            "recent_exercise_feedback":    mysql_data.get("recent_exercise_feedback", []),
+            "recent_body_metrics":         mysql_data.get("recent_body_metrics", []),
+        }
+    else:
+        active_injuries = [
+            injury
+            for injury in store.get("injury_events", [])
+            if memory_injury_is_active(injury, safe_target)
+        ]
+        legacy_context = {
+            "active_injuries": active_injuries,
+            "recent_food_preferences": store.get("food_preferences", [])[-10:],
+            "recent_training_preferences": store.get("training_preferences", [])[-10:],
+            "recent_plan_modifications": store.get("plan_modification_logs", [])[-12:],
+            "recent_daily_feedback": store.get("daily_feedback_records", [])[-14:],
+            "recent_exercise_feedback": store.get("exercise_feedback_records", [])[-30:],
+            "recent_body_metrics": store.get("body_metrics", [])[-14:],
+        }
+
     session_state = session_state or {}
     result = result or {}
     return {
@@ -110,6 +142,7 @@ def memory_context_for_planning(
             result=result,
             memory_store=store,
             active_injuries=active_injuries,
+            learned_preferences_override=mysql_data.get("learned_preferences") if mysql_data else None,
         ),
         "conversation_summary": str(session_state.get("conversation_summary") or "").strip(),
         "sliding_window": conversation_sliding_window(
@@ -144,12 +177,17 @@ def build_structured_profile(
     result: dict[str, Any],
     memory_store: dict[str, list[dict[str, Any]]],
     active_injuries: list[dict[str, Any]],
+    learned_preferences_override: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     user_profile = {**profile_inputs, **_as_dict(result.get("user_profile"))}
     constraints = _as_dict(result.get("constraints"))
     goals = _as_dict(result.get("goals"))
     latest_body_metric = _latest_dict(memory_store.get("body_metrics", []))
-    learned_preferences = build_learned_preferences(memory_store, active_injuries)
+    learned_preferences = (
+        learned_preferences_override
+        if learned_preferences_override is not None
+        else build_learned_preferences(memory_store, active_injuries)
+    )
     return {
         "static_profile": {
             "user_id": _first_text(user_profile.get("user_id"), "demo-user"),
@@ -254,9 +292,23 @@ def compact_conversation_memory(
     archived = clean_messages[:-limit]
     window = clean_messages[-limit:]
     archived_summary = summarize_chat_messages(archived)
-    summary = " | ".join(part for part in [existing_summary.strip(), archived_summary] if part)
+    parts = [part for part in [existing_summary.strip(), archived_summary] if part]
+    summary = " | ".join(parts)
     if len(summary) > CONVERSATION_SUMMARY_CHAR_LIMIT:
-        summary = summary[-CONVERSATION_SUMMARY_CHAR_LIMIT:].lstrip(" |")
+        try:
+            from agent.llm import call_model_text
+            summary = call_model_text(
+                system_prompt=(
+                    "Merge and compress these two fitness coaching summaries into one, "
+                    "keeping all unique fitness facts (injuries, exercise changes, food preferences, "
+                    "mood signals). Under 120 words. Be concise."
+                ),
+                user_prompt="\n---\n".join(parts),
+                temperature=0.1,
+                max_tokens=180,
+            ).strip()
+        except Exception:
+            summary = summary[-CONVERSATION_SUMMARY_CHAR_LIMIT:].lstrip(" |")
     return summary, window
 
 
@@ -266,8 +318,28 @@ def summarize_chat_messages(messages: list[dict[str, Any]], *, max_items: int = 
         role = "User" if message.get("role") == "user" else "Coach"
         content = str(message.get("content") or "").strip()
         if content:
-            pairs.append(f"{role}: {_truncate(content, 120)}")
-    return "Earlier chat summary: " + " / ".join(pairs) if pairs else ""
+            pairs.append(f"{role}: {_truncate(content, 300)}")
+    if not pairs:
+        return ""
+    conversation_text = "\n".join(pairs)
+    try:
+        from agent.llm import call_model_text
+        summary = call_model_text(
+            system_prompt=(
+                "You are summarizing a fitness coaching conversation. "
+                "Extract ONLY fitness-relevant facts in under 120 words: "
+                "injuries or pain reported, exercises added/removed/swapped, "
+                "food preferences or avoidances, user mood or energy signals, "
+                "any explicit requests the user made. "
+                "Be concise and factual. Omit small talk."
+            ),
+            user_prompt=f"Summarize these exchanges:\n{conversation_text}",
+            temperature=0.1,
+            max_tokens=180,
+        )
+        return summary.strip()
+    except Exception:
+        return "Earlier chat: " + " / ".join(_truncate(p, 80) for p in pairs)
 
 
 def conversation_sliding_window(messages: Any, *, limit: int = CHAT_WINDOW_LIMIT) -> list[dict[str, str]]:

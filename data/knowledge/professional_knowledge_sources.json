@@ -31,6 +31,113 @@
       "tags": ["warmup", "injury_prevention"]
     },
     {
+      "id": "exrx_squat_technique",
+      "title": "ExRx Barbell Squat Technique",
+      "url": "https://exrx.net/WeightExercises/Quadriceps/BBSquat",
+      "source": "exrx",
+      "topic": "training",
+      "doc_type": "reference",
+      "evidence_type": "professional_reference",
+      "muscle_group": "legs",
+      "tags": ["squat", "legs", "form", "technique"]
+    },
+    {
+      "id": "exrx_deadlift_technique",
+      "title": "ExRx Barbell Deadlift Technique",
+      "url": "https://exrx.net/WeightExercises/GluteusMaximus/BBDeadlift",
+      "source": "exrx",
+      "topic": "training",
+      "doc_type": "reference",
+      "evidence_type": "professional_reference",
+      "muscle_group": "back",
+      "tags": ["deadlift", "posterior_chain", "form", "technique"]
+    },
+    {
+      "id": "exrx_bench_press_technique",
+      "title": "ExRx Barbell Bench Press Technique",
+      "url": "https://exrx.net/WeightExercises/PectoralSternal/BBBenchPress",
+      "source": "exrx",
+      "topic": "training",
+      "doc_type": "reference",
+      "evidence_type": "professional_reference",
+      "muscle_group": "chest",
+      "tags": ["bench_press", "chest", "form", "technique"]
+    },
+    {
+      "id": "exrx_pullup_technique",
+      "title": "ExRx Pull-up Technique",
+      "url": "https://exrx.net/WeightExercises/LatissimusDorsi/BWPullup",
+      "source": "exrx",
+      "topic": "training",
+      "doc_type": "reference",
+      "evidence_type": "professional_reference",
+      "muscle_group": "back",
+      "tags": ["pullup", "back", "form", "technique"]
+    },
+    {
+      "id": "exrx_overhead_press_technique",
+      "title": "ExRx Barbell Overhead Press Technique",
+      "url": "https://exrx.net/WeightExercises/DeltoidAnterior/BBMilitaryPress",
+      "source": "exrx",
+      "topic": "training",
+      "doc_type": "reference",
+      "evidence_type": "professional_reference",
+      "muscle_group": "shoulders",
+      "tags": ["overhead_press", "shoulders", "form", "technique"]
+    },
+    {
+      "id": "exrx_romanian_deadlift",
+      "title": "ExRx Romanian Deadlift Technique",
+      "url": "https://exrx.net/WeightExercises/Hamstrings/BBRomanianDeadlift",
+      "source": "exrx",
+      "topic": "training",
+      "doc_type": "reference",
+      "evidence_type": "professional_reference",
+      "muscle_group": "legs",
+      "tags": ["romanian_deadlift", "hamstrings", "form", "technique"]
+    },
+    {
+      "id": "exrx_row_technique",
+      "title": "ExRx Barbell Row Technique",
+      "url": "https://exrx.net/WeightExercises/BackGeneral/BBBentOverRow",
+      "source": "exrx",
+      "topic": "training",
+      "doc_type": "reference",
+      "evidence_type": "professional_reference",
+      "muscle_group": "back",
+      "tags": ["barbell_row", "back", "form", "technique"]
+    },
+    {
+      "id": "exrx_program_design",
+      "title": "ExRx Program Design",
+      "url": "https://exrx.net/WeightTraining/ProgramDesign",
+      "source": "exrx",
+      "topic": "training",
+      "doc_type": "reference",
+      "evidence_type": "professional_reference",
+      "tags": ["program_design", "periodization", "volume"]
+    },
+    {
+      "id": "exrx_muscle_directory",
+      "title": "ExRx Muscle Directory",
+      "url": "https://exrx.net/Lists/Directory",
+      "source": "exrx",
+      "topic": "training",
+      "doc_type": "reference",
+      "evidence_type": "professional_reference",
+      "tags": ["muscle_groups", "exercise_selection"]
+    },
+    {
+      "id": "exrx_overtraining",
+      "title": "ExRx Overtraining",
+      "url": "https://exrx.net/ExInfo/Overtraining",
+      "source": "exrx",
+      "topic": "recovery",
+      "doc_type": "reference",
+      "evidence_type": "professional_reference",
+      "tags": ["overtraining", "recovery", "fatigue"]
+    },
+    {
       "id": "who_physical_activity",
       "title": "WHO Physical Activity Fact Sheet",
       "url": "https://www.who.int/news-room/fact-sheets/detail/physical-activity",
@@ -82,6 +189,26 @@
       "evidence_type": "community_wiki",
       "goal": ["hypertrophy", "strength"],
       "tags": ["muscle_gain", "progressive_overload"]
+    },
+    {
+      "id": "fitness_wiki_cardio",
+      "title": "The Fitness Wiki Cardio",
+      "url": "https://thefitness.wiki/cardio/",
+      "source": "fitness_wiki",
+      "topic": "training",
+      "doc_type": "wiki",
+      "evidence_type": "community_wiki",
+      "tags": ["cardio", "conditioning", "fat_loss"]
+    },
+    {
+      "id": "fitness_wiki_eating_for_fitness",
+      "title": "The Fitness Wiki Eating for Fitness",
+      "url": "https://thefitness.wiki/eating-for-fitness/",
+      "source": "fitness_wiki",
+      "topic": "nutrition",
+      "doc_type": "wiki",
+      "evidence_type": "community_wiki",
+      "tags": ["nutrition", "macros", "meal_timing"]
     }
   ],
   "pdf_sources": [
@@ -175,6 +302,45 @@
       "evidence_type": "peer_reviewed_abstract",
       "goal": ["strength", "hypertrophy"],
       "tags": ["periodization", "program_design"]
+    },
+    {
+      "id": "pubmed_squat_biomechanics",
+      "term": "squat biomechanics knee injury resistance training[Title/Abstract] AND english[Language]",
+      "source": "pubmed",
+      "topic": "training",
+      "doc_type": "abstract",
+      "evidence_type": "peer_reviewed_abstract",
+      "muscle_group": "legs",
+      "tags": ["squat", "biomechanics", "knee", "form"]
+    },
+    {
+      "id": "pubmed_hypertrophy_volume",
+      "term": "training volume hypertrophy sets repetitions[Title/Abstract] AND english[Language]",
+      "source": "pubmed",
+      "topic": "training",
+      "doc_type": "abstract",
+      "evidence_type": "peer_reviewed_abstract",
+      "goal": ["hypertrophy"],
+      "tags": ["volume", "hypertrophy", "sets_reps"]
+    },
+    {
+      "id": "pubmed_progressive_overload",
+      "term": "progressive overload strength training adaptation[Title/Abstract] AND english[Language]",
+      "source": "pubmed",
+      "topic": "training",
+      "doc_type": "abstract",
+      "evidence_type": "peer_reviewed_abstract",
+      "goal": ["strength", "hypertrophy"],
+      "tags": ["progressive_overload", "adaptation"]
+    },
+    {
+      "id": "pubmed_muscle_recovery_soreness",
+      "term": "muscle recovery DOMS delayed onset muscle soreness exercise[Title/Abstract] AND english[Language]",
+      "source": "pubmed",
+      "topic": "recovery",
+      "doc_type": "abstract",
+      "evidence_type": "peer_reviewed_abstract",
+      "tags": ["recovery", "soreness", "doms"]
     }
   ]
 }
